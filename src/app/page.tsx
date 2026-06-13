@@ -24,6 +24,7 @@ import {
   Bookmark,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Circle,
@@ -331,7 +332,7 @@ export default function Home() {
         </aside>
 
         <section className="content-area">
-          <PageHeader view={view} theme={theme} setTheme={setTheme} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} />
+          <PageHeader view={view} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} />
           {view === "Home" && <HomeDashboard state={state} summary={summary} pinnedBookmarks={pinnedBookmarks} setView={setView} toggleTodo={toggleTodo} />}
           {view === "Today" && <TodayView todos={state.todos} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} toggleTodo={toggleTodo} removeTodo={(id) => removeItem("todos", id)} />}
           {view === "Projects" && <ProjectsView projects={state.projects} setSelectedProjectId={setSelectedProjectId} setView={setView} />}
@@ -361,11 +362,11 @@ function TopMusicPlayer({ playing, setPlaying }: { playing: boolean; setPlaying:
   );
 }
 
-function PageHeader({ view, theme, setTheme, quickText, setQuickText, addTodo }: { view: AppView; theme: "light" | "dark"; setTheme: (theme: "light" | "dark") => void; quickText: string; setQuickText: (value: string) => void; addTodo: () => void }) {
+function PageHeader({ view, quickText, setQuickText, addTodo }: { view: AppView; quickText: string; setQuickText: (value: string) => void; addTodo: () => void }) {
   return (
     <div className="page-header">
       <div><span className="pill">JUNE 13 · SATURDAY</span><h1>{view === "Home" ? "오늘의 작업실" : view}</h1><p>정돈된 생산성 홈에서 할 일, 프로젝트, 일정, 북마크와 음악을 함께 관리합니다.</p></div>
-      <div className="quick-add"><input value={quickText} onChange={(event) => setQuickText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addTodo(); }} placeholder="할 일을 빠르게 추가" /><button className="primary-button" onClick={addTodo}><Plus size={16} />추가</button><button className="icon-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")}>{theme === "light" ? <Moon size={17} /> : <Sun size={17} />}</button></div>
+      <div className="quick-add"><input value={quickText} onChange={(event) => setQuickText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addTodo(); }} placeholder="할 일을 빠르게 추가" /><button className="primary-button" onClick={addTodo}><Plus size={16} />추가</button></div>
     </div>
   );
 }
@@ -397,12 +398,43 @@ type KanbanDndData =
 function KanbanView({ projects, selectedProjectId, setSelectedProjectId, columns, newCard, setNewCard, addCard, moveCard, removeCard, selectCard }: { projects: Project[]; selectedProjectId: string; setSelectedProjectId: (id: string) => void; columns: ReturnType<typeof getKanbanColumns>; newCard: string; setNewCard: (value: string) => void; addCard: (column?: KanbanColumnName) => void; moveCard: (id: string, target: KanbanMoveTarget) => void; removeCard: (id: string) => void; selectCard: (id: string) => void }) {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [activeCardRect, setActiveCardRect] = useState<{ width: number; height?: number } | undefined>();
+  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
+  const projectMenuRef = useRef<HTMLDivElement | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const allCards = columns.flatMap((column) => column.cards);
   const activeCard = activeCardId ? allCards.find((card) => card.id === activeCardId) ?? null : null;
+  const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const selectedProjectName = selectedProject?.name ?? "프로젝트 선택";
+  const selectedProjectMeta = selectedProject ? `${selectedProject.status} · ${selectedProject.progress}% 진행${selectedProject.dueDate ? ` · ${selectedProject.dueDate.slice(5)} 마감` : ""}` : "프로젝트를 선택하세요";
+
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      if (!projectMenuRef.current?.contains(event.target as Node)) {
+        setIsProjectMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsProjectMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
+
+  function handleProjectSelect(projectId: string) {
+    setSelectedProjectId(projectId);
+    setIsProjectMenuOpen(false);
+  }
 
   function handleDragStart(event: DragStartEvent) {
     const activeId = String(event.active.id);
@@ -428,7 +460,65 @@ function KanbanView({ projects, selectedProjectId, setSelectedProjectId, columns
     setActiveCardRect(undefined);
   }
 
-  return <section className="kanban-page"><div className="form-row"><select value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select><input value={newCard} onChange={(event) => setNewCard(event.target.value)} placeholder="새 칸반 카드" /><button className="primary-button" onClick={() => addCard("Backlog")}>Backlog에 추가</button></div><DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragCancel={() => { setActiveCardId(null); setActiveCardRect(undefined); }} onDragEnd={handleDragEnd}><div className="kanban-board">{columns.map((column) => <KanbanColumn key={column.name} column={column} activeCardId={activeCardId} removeCard={removeCard} selectCard={selectCard} />)}</div><DragOverlay>{activeCard ? <article className="kanban-card kanban-card-overlay" style={getKanbanDragOverlayStyle(activeCardRect)}><KanbanCardBody card={activeCard} /></article> : null}</DragOverlay></DndContext><p className="kanban-hint">dnd-kit 기반 드래그로 컬럼과 카드 사이를 이동합니다. 같은 컬럼 안에서는 카드 위로 드롭해 순서를 바꿀 수 있습니다.</p></section>;
+  return (
+    <section className="kanban-page">
+      <div className="kanban-toolbar">
+        <div className="project-picker">
+          <span>Project</span>
+          <div ref={projectMenuRef} className={isProjectMenuOpen ? "project-select-shell is-open" : "project-select-shell"}>
+            <button
+              type="button"
+              className="project-select-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={isProjectMenuOpen}
+              aria-label="칸반 프로젝트 선택"
+              onClick={() => setIsProjectMenuOpen((open) => !open)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setIsProjectMenuOpen(true);
+                }
+              }}
+            >
+              <strong>{selectedProjectName}</strong>
+              <ChevronDown size={16} aria-hidden="true" />
+            </button>
+            {isProjectMenuOpen ? (
+              <div className="project-select-menu" role="listbox" aria-label="칸반 프로젝트 목록">
+                {projects.map((project) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    role="option"
+                    aria-selected={project.id === selectedProjectId}
+                    className={project.id === selectedProjectId ? "selected" : ""}
+                    onClick={() => handleProjectSelect(project.id)}
+                  >
+                    <span>{project.name}</span>
+                    <em>{project.progress}%</em>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <em>{selectedProjectMeta}</em>
+        </div>
+        <div className="kanban-add-card">
+          <input value={newCard} onChange={(event) => setNewCard(event.target.value)} placeholder="새 칸반 카드" />
+          <button className="primary-button" onClick={() => addCard("Backlog")}>Backlog에 추가</button>
+        </div>
+      </div>
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragCancel={() => { setActiveCardId(null); setActiveCardRect(undefined); }} onDragEnd={handleDragEnd}>
+        <div className="kanban-board">
+          {columns.map((column) => <KanbanColumn key={column.name} column={column} activeCardId={activeCardId} removeCard={removeCard} selectCard={selectCard} />)}
+        </div>
+        <DragOverlay>
+          {activeCard ? <article className="kanban-card kanban-card-overlay" style={getKanbanDragOverlayStyle(activeCardRect)}><KanbanCardBody card={activeCard} /></article> : null}
+        </DragOverlay>
+      </DndContext>
+      <p className="kanban-hint">dnd-kit 기반 드래그로 컬럼과 카드 사이를 이동합니다. 같은 컬럼 안에서는 카드 위로 드롭해 순서를 바꿀 수 있습니다.</p>
+    </section>
+  );
 }
 
 function KanbanColumn({ column, activeCardId, removeCard, selectCard }: { column: ReturnType<typeof getKanbanColumns>[number]; activeCardId: string | null; removeCard: (id: string) => void; selectCard: (id: string) => void }) {
@@ -532,6 +622,6 @@ function CalendarView({ events, newEvent, setNewEvent, addEvent, removeEvent, mo
 
 function BookmarksView({ bookmarks, newBookmark, setNewBookmark, addBookmark, removeBookmark }: { bookmarks: BookmarkItem[]; newBookmark: string; setNewBookmark: (value: string) => void; addBookmark: () => void; removeBookmark: (id: string) => void }) { return <section className="panel-card card"><div className="form-row"><input value={newBookmark} onChange={(event) => setNewBookmark(event.target.value)} placeholder="제목 | https://url.com" /><button className="primary-button" onClick={addBookmark}>북마크 추가</button></div><div className="bookmark-table">{bookmarks.map((bookmark) => <a key={bookmark.id} href={bookmark.url} target="_blank"><strong>{bookmark.title}</strong><span>{bookmark.category}</span><button onClick={(event) => { event.preventDefault(); removeBookmark(bookmark.id); }}><Trash2 size={15} /></button></a>)}</div></section>; }
 
-function SettingsView({ theme, setTheme }: { theme: "light" | "dark"; setTheme: (theme: "light" | "dark") => void }) { return <section className="panel-card card"><h2>설정</h2><p>Supabase URL/Anon Key를 환경변수로 연결하면 Auth와 클라우드 DB 동기화로 확장됩니다.</p><div className="settings-grid"><button className="soft-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")}>{theme === "light" ? "다크모드로 전환" : "라이트모드로 전환"}</button><code>NEXT_PUBLIC_SUPABASE_URL</code><code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code><code>YouTube Music: 비공식 연동 시도 + embed fallback</code></div></section>; }
+function SettingsView({ theme, setTheme }: { theme: "light" | "dark"; setTheme: (theme: "light" | "dark") => void }) { return <section className="panel-card card"><h2>설정</h2><p>Supabase URL/Anon Key를 환경변수로 연결하면 Auth와 클라우드 DB 동기화로 확장됩니다.</p><div className="settings-grid"><button className="settings-theme-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")}><span>{theme === "light" ? <Moon size={17} /> : <Sun size={17} />}</span><strong>{theme === "light" ? "다크모드로 전환" : "라이트모드로 전환"}</strong><em>테마 변경은 Settings에서만 관리합니다.</em></button><code>NEXT_PUBLIC_SUPABASE_URL</code><code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code><code>YouTube Music: 비공식 연동 시도 + embed fallback</code></div></section>; }
 
 function CalendarMini({ events, large = false }: { events: CalendarEvent[]; large?: boolean }) { const eventDays = new Set(events.map((event) => Number(event.startAt.slice(8, 10)))); return <div className={large ? "calendar-mini large" : "calendar-mini"}>{[9, 10, 11, 12, 13, 14, 15].map((day) => <span key={day} className={eventDays.has(day) ? "event-day" : day === 13 ? "today-day" : ""}>{day}</span>)}</div>; }

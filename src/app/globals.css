@@ -128,7 +128,7 @@ button:hover, .bookmark-grid a:hover, .bookmark-table a:hover { transform: trans
 .page-header { display: grid; grid-template-columns: 1fr minmax(360px, 520px); gap: 20px; align-items: end; margin-bottom: 18px; }
 .page-header h1 { margin: 10px 0 7px; font-size: 36px; line-height: 1.02; letter-spacing: -0.055em; }
 .page-header p { margin: 0; color: var(--muted); line-height: 1.6; }
-.quick-add input, .form-row input, .form-row select { height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-solid); color: var(--ink); padding: 0 12px; min-width: 0; }
+.quick-add input, .form-row input, .form-row select, .kanban-add-card input { height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-solid); color: var(--ink); padding: 0 12px; min-width: 0; }
 .quick-add input { width: 260px; }
 .pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.5); color: var(--muted); font-size: 12px; font-weight: 700; }
 .card { border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: 0 1px 0 rgba(255,255,255,.72) inset; }
@@ -178,6 +178,68 @@ button:hover, .bookmark-grid a:hover, .bookmark-table a:hover { transform: trans
 .project-card h3 { font-size: 18px; margin: 18px 0 6px; }
 .project-card p { color: var(--muted); margin: 0 0 18px; }
 .kanban-page { display: flex; flex-direction: column; gap: 14px; }
+.kanban-toolbar { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr) minmax(420px, 520px); gap: 18px; align-items: end; padding: 2px 0 6px; }
+.project-picker { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 800; }
+.project-picker > span { padding-left: 1px; letter-spacing: .05em; text-transform: uppercase; }
+.project-picker > em { color: var(--muted); font-size: 12px; font-style: normal; font-weight: 700; }
+.project-select-shell { position: relative; z-index: 20; width: min(340px, 100%); }
+.project-select-trigger {
+  width: 100%;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,254,251,.86), rgba(244,241,235,.72));
+  color: var(--ink);
+  padding: 0 10px 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.68);
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.project-select-trigger strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; letter-spacing: -0.025em; }
+.project-select-trigger svg { flex: 0 0 auto; color: var(--muted); transition: transform .16s ease, color .16s ease; }
+.project-select-trigger:hover { transform: none; border-color: var(--line-strong); background: rgba(255,254,251,.95); }
+.project-select-trigger:focus-visible { outline: none; border-color: rgba(143,164,141,.58); box-shadow: 0 0 0 3px rgba(143,164,141,.14), inset 0 1px 0 rgba(255,255,255,.68); }
+.project-select-shell.is-open .project-select-trigger { border-color: rgba(143,164,141,.46); background: rgba(255,254,251,.98); box-shadow: 0 0 0 3px rgba(143,164,141,.1), inset 0 1px 0 rgba(255,255,255,.68); }
+.project-select-shell.is-open .project-select-trigger svg { transform: rotate(180deg); color: var(--ink); }
+.project-select-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  width: 100%;
+  min-width: 270px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255,254,251,.98);
+  box-shadow: 0 18px 42px rgba(64,53,42,.15), inset 0 1px 0 rgba(255,255,255,.72);
+  backdrop-filter: blur(12px);
+}
+.project-select-menu button {
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  padding: 0 9px 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  font-weight: 750;
+  transition: background .14s ease, color .14s ease;
+}
+.project-select-menu button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-select-menu button em { flex: 0 0 auto; color: var(--soft); font-size: 11px; font-style: normal; font-weight: 800; }
+.project-select-menu button:hover, .project-select-menu button.selected { transform: none; background: rgba(143,164,141,.13); color: var(--ink); }
+.project-select-menu button.selected em { color: var(--sage); }
+.kanban-add-card { grid-column: 3; display: flex; justify-content: flex-end; align-items: center; gap: 9px; flex-wrap: nowrap; justify-self: stretch; }
+.kanban-add-card input { width: min(280px, 100%); flex: 1 1 260px; }
+.kanban-add-card .primary-button { flex: 0 0 auto; min-width: 118px; white-space: nowrap; justify-content: center; }
 .kanban-board { display: grid; grid-template-columns: repeat(7, minmax(210px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 10px; }
 .kanban-column { position: relative; min-height: 520px; padding: 12px; transition: background .18s ease, border-color .18s ease, box-shadow .18s ease; }
 .kanban-column.drop-ready { outline: 1px dashed rgba(143,164,141,.32); outline-offset: -6px; }
@@ -290,6 +352,11 @@ button:hover, .bookmark-grid a:hover, .bookmark-table a:hover { transform: trans
 .bookmark-table button { grid-row: span 2; border: 0; background: transparent; color: var(--muted); }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
 .settings-grid code { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: rgba(255,255,255,.44); color: var(--muted); }
+.settings-theme-button { min-height: 88px; display: grid; grid-template-columns: 38px 1fr; column-gap: 11px; row-gap: 3px; align-items: center; text-align: left; border: 1px solid var(--line); border-radius: 13px; background: linear-gradient(180deg, var(--card-solid), rgba(244,241,235,.64)); color: var(--ink); padding: 13px; transition: .18s ease; }
+.settings-theme-button span { grid-row: span 2; width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 11px; background: rgba(143,164,141,.12); color: var(--sage); }
+.settings-theme-button strong { font-size: 14px; letter-spacing: -0.025em; }
+.settings-theme-button em { color: var(--muted); font-size: 12px; font-style: normal; line-height: 1.4; }
+.settings-theme-button:hover { transform: translateY(-1px); border-color: var(--line-strong); }
 
 @keyframes cover-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
 @keyframes wave-pulse { 0%, 100% { transform: scaleY(.5); opacity: .45; } 50% { transform: scaleY(1); opacity: 1; } }
@@ -303,6 +370,9 @@ button:hover, .bookmark-grid a:hover, .bookmark-table a:hover { transform: trans
   .page-header, .dashboard-grid { grid-template-columns: 1fr; }
   .hero-card, .widget.wide { grid-column: auto; }
   .project-grid, .bookmark-table { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kanban-toolbar { grid-template-columns: 1fr; }
+  .kanban-add-card { grid-column: auto; justify-content: flex-start; justify-self: stretch; }
+  .kanban-add-card input { flex: 1 1 auto; }
   .detail-layout { grid-template-columns: 1fr; }
 }
 
