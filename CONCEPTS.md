@@ -10,10 +10,16 @@ A configurable block of personal workspace information shown on the Home dashboa
 ### Home Dashboard
 The primary workspace surface that summarizes the user's current productivity state and routes into the more focused areas of the app.
 
+### Quick Add
+A compact creation affordance for capturing a new task or work item without leaving the current workspace surface.
+
 ## Work Management
 
 ### Project
 A user-defined body of work that groups Kanban Cards and carries a progress/state summary for the dashboard.
+
+### Project Picker
+The control used to choose which Project supplies the active Kanban Board context.
 
 ### Kanban Card
 A unit of work that moves through Kanban Columns and can be opened into a detail drawer for richer issue-like metadata.

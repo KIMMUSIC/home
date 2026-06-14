@@ -10,6 +10,29 @@ export const KANBAN_COLUMN_ORDER = [
 
 export type KanbanColumnName = (typeof KANBAN_COLUMN_ORDER)[number];
 export type CalendarMode = "week" | "month";
+export type DashboardWidgetType = "focus" | "clock" | "today" | "projects" | "calendar" | "kanban" | "bookmarks" | "memo" | "music";
+export type DashboardWidgetSize = "small" | "medium" | "wide";
+
+export type WidgetConfig = {
+  id: DashboardWidgetType;
+  type: DashboardWidgetType;
+  title: string;
+  enabled: boolean;
+  size: DashboardWidgetSize;
+  order: number;
+};
+
+export const DEFAULT_WIDGET_CONFIGS: WidgetConfig[] = [
+  { id: "focus", type: "focus", title: "집중 요약", enabled: true, size: "wide", order: 0 },
+  { id: "clock", type: "clock", title: "시계", enabled: true, size: "small", order: 1 },
+  { id: "today", type: "today", title: "오늘의 할 일", enabled: true, size: "medium", order: 2 },
+  { id: "projects", type: "projects", title: "프로젝트 현황", enabled: true, size: "medium", order: 3 },
+  { id: "calendar", type: "calendar", title: "이번 주 달력", enabled: true, size: "medium", order: 4 },
+  { id: "kanban", type: "kanban", title: "칸반 미리보기", enabled: true, size: "wide", order: 5 },
+  { id: "bookmarks", type: "bookmarks", title: "북마크", enabled: true, size: "medium", order: 6 },
+  { id: "memo", type: "memo", title: "메모", enabled: true, size: "medium", order: 7 },
+  { id: "music", type: "music", title: "음악 플레이리스트", enabled: false, size: "medium", order: 8 },
+];
 
 export type Project = {
   id: string;
@@ -232,4 +255,51 @@ export function getPinnedBookmarks(bookmarks: Bookmark[], limit = 6) {
   return [...bookmarks]
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.title.localeCompare(b.title))
     .slice(0, limit);
+}
+
+function getDefaultWidgetConfig(type: DashboardWidgetType) {
+  return DEFAULT_WIDGET_CONFIGS.find((widget) => widget.type === type);
+}
+
+export function normalizeWidgetConfigs(configs: WidgetConfig[] = DEFAULT_WIDGET_CONFIGS) {
+  const byType = new Map(configs.map((widget) => [widget.type, widget]));
+  return DEFAULT_WIDGET_CONFIGS.map((fallback) => {
+    const incoming = byType.get(fallback.type);
+    return {
+      ...fallback,
+      ...incoming,
+      id: fallback.type,
+      type: fallback.type,
+      title: incoming?.title || fallback.title,
+    };
+  })
+    .sort((a, b) => a.order - b.order)
+    .map((widget, order) => ({ ...widget, order }));
+}
+
+export function getVisibleWidgetConfigs(configs: WidgetConfig[]) {
+  return normalizeWidgetConfigs(configs).filter((widget) => widget.enabled);
+}
+
+export function setWidgetVisibility(configs: WidgetConfig[], type: DashboardWidgetType, enabled: boolean) {
+  return normalizeWidgetConfigs(configs).map((widget) => (widget.type === type ? { ...widget, enabled } : widget));
+}
+
+export function setWidgetSize(configs: WidgetConfig[], type: DashboardWidgetType, size: DashboardWidgetSize) {
+  return normalizeWidgetConfigs(configs).map((widget) => (widget.type === type ? { ...widget, size } : widget));
+}
+
+export function moveWidgetConfig(configs: WidgetConfig[], type: DashboardWidgetType, direction: "up" | "down") {
+  const ordered = normalizeWidgetConfigs(configs);
+  const index = ordered.findIndex((widget) => widget.type === type);
+  const targetIndex = direction === "up" ? index - 1 : index + 1;
+  if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return ordered;
+
+  const next = [...ordered];
+  [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+  return next.map((widget, order) => ({ ...widget, order }));
+}
+
+export function getWidgetTitle(type: DashboardWidgetType) {
+  return getDefaultWidgetConfig(type)?.title ?? type;
 }

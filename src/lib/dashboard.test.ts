@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateDashboardSummary,
+  DEFAULT_WIDGET_CONFIGS,
   getCalendarDays,
   getKanbanColumns,
   getKanbanDragOverlayStyle,
   getKanbanPriorityLabel,
   getPinnedBookmarks,
+  getVisibleWidgetConfigs,
+  getWidgetTitle,
+  moveWidgetConfig,
+  normalizeWidgetConfigs,
   parseKanbanLabelsInput,
   moveKanbanCardForDnd,
   moveKanbanCardToColumn,
+  setWidgetSize,
+  setWidgetVisibility,
   updateKanbanCardDetails,
   type CalendarEvent,
   type KanbanCard,
@@ -164,5 +171,36 @@ describe("dashboard helpers", () => {
       { id: "b3", title: "Vercel", url: "https://vercel.com", pinned: true, category: "Deploy" },
     ];
     expect(getPinnedBookmarks(bookmarks, 2).map((bookmark) => bookmark.title)).toEqual(["GitHub", "Vercel"]);
+  });
+
+  it("normalizes widget settings with defaults and stable order", () => {
+    const custom = normalizeWidgetConfigs([
+      { id: "bookmarks", type: "bookmarks", title: "Links", enabled: false, size: "wide", order: 0 },
+      { id: "today", type: "today", title: "오늘", enabled: true, size: "small", order: 3 },
+    ]);
+
+    expect(custom).toHaveLength(DEFAULT_WIDGET_CONFIGS.length);
+    expect(custom.map((widget) => `${widget.order}:${widget.type}`)).toEqual(custom.map((widget, index) => `${index}:${widget.type}`));
+    expect(custom.find((widget) => widget.type === "bookmarks")).toMatchObject({ title: "Links", enabled: false, size: "wide" });
+    expect(custom.find((widget) => widget.type === "kanban")?.enabled).toBe(true);
+  });
+
+  it("filters visible widgets and updates visibility and size", () => {
+    const hidden = setWidgetVisibility(DEFAULT_WIDGET_CONFIGS, "kanban", false);
+    const resized = setWidgetSize(hidden, "today", "wide");
+
+    expect(getVisibleWidgetConfigs(resized).some((widget) => widget.type === "kanban")).toBe(false);
+    expect(resized.find((widget) => widget.type === "today")?.size).toBe("wide");
+    expect(getWidgetTitle("music")).toBe("음악 플레이리스트");
+  });
+
+  it("moves widget configuration up and down without losing order indexes", () => {
+    const movedDown = moveWidgetConfig(DEFAULT_WIDGET_CONFIGS, "today", "down");
+    const projectIndex = movedDown.findIndex((widget) => widget.type === "projects");
+    const todayIndex = movedDown.findIndex((widget) => widget.type === "today");
+
+    expect(todayIndex).toBe(projectIndex + 1);
+    expect(movedDown.map((widget) => widget.order)).toEqual(movedDown.map((_, index) => index));
+    expect(moveWidgetConfig(movedDown, "focus", "up").map((widget) => widget.type)).toEqual(movedDown.map((widget) => widget.type));
   });
 });
