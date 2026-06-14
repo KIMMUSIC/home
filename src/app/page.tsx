@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import {
   closestCorners,
@@ -22,6 +22,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   Bookmark,
@@ -38,6 +39,8 @@ import {
   ListChecks,
   Moon,
   PanelLeft,
+  Pause,
+  Play,
   Plus,
   Search,
   Settings,
@@ -87,7 +90,16 @@ import {
   type MusicSettings,
 } from "@/lib/dashboard-state";
 import { createSupabaseBrowserClient, getSupabaseBrowserConfigStatus } from "@/lib/supabase";
-import { getYouTubeMusicResourceLabel, parseYouTubeMusicResource, type YouTubeMusicResource } from "@/lib/youtube-music";
+import {
+  describeYouTubePlayerError,
+  getYouTubeMusicResourceLabel,
+  getYouTubePlayerEmbedUrl,
+  getYouTubeThumbnailUrl,
+  needsPlaylistFirstTrackUrl,
+  parseYouTubeMusicResource,
+  type YouTubeMusicResource,
+  type YouTubePlayerError,
+} from "@/lib/youtube-music";
 
 type AppView = "Home" | "Today" | "Projects" | "Kanban" | "Calendar" | "Bookmarks" | "Settings";
 
@@ -121,6 +133,98 @@ type DashboardAccount = {
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
 };
+
+type MusicPlaybackStatus = "idle" | "loading" | "ready" | "playing" | "paused" | "buffering" | "ended" | "error";
+
+type YouTubePlayerInstance = {
+  playVideo?: () => void;
+  pauseVideo?: () => void;
+  nextVideo?: () => void;
+  previousVideo?: () => void;
+  destroy?: () => void;
+};
+
+type YouTubeIframeApi = {
+  Player: new (
+    element: string | HTMLIFrameElement,
+    options: {
+      events?: {
+        onReady?: () => void;
+        onStateChange?: (event: { data: number }) => void;
+        onError?: (event: { data: number }) => void;
+      };
+    },
+  ) => YouTubePlayerInstance;
+};
+
+declare global {
+  interface Window {
+    YT?: YouTubeIframeApi;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
+let youtubeIframeApiPromise: Promise<YouTubeIframeApi | null> | null = null;
+
+function loadYouTubeIframeApi() {
+  if (typeof window === "undefined") return Promise.resolve(null);
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (youtubeIframeApiPromise) return youtubeIframeApiPromise;
+
+  youtubeIframeApiPromise = new Promise((resolve) => {
+    const previousReady = window.onYouTubeIframeAPIReady;
+
+    function finish(api: YouTubeIframeApi | null) {
+      window.clearTimeout(timeout);
+      if (window.onYouTubeIframeAPIReady === handleReady) {
+        window.onYouTubeIframeAPIReady = previousReady;
+      }
+      if (!api?.Player) youtubeIframeApiPromise = null;
+      resolve(api?.Player ? api : null);
+    }
+
+    function handleReady() {
+      previousReady?.();
+      finish(window.YT ?? null);
+    }
+
+    const timeout = window.setTimeout(() => finish(window.YT?.Player ? window.YT : null), 8000);
+    window.onYouTubeIframeAPIReady = handleReady;
+
+    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+      const script = document.createElement("script");
+      script.src = "https://www.youtube.com/iframe_api";
+      script.async = true;
+      script.onerror = () => {
+        script.remove();
+        finish(null);
+      };
+      document.head.appendChild(script);
+    }
+  });
+
+  return youtubeIframeApiPromise;
+}
+
+function getTopPlayerSubtitle(music: MusicSettings, resource: YouTubeMusicResource | null, status: MusicPlaybackStatus, error: YouTubePlayerError | null) {
+  if (error) return error.title;
+  if (!resource) return music.subtitle;
+  if (needsPlaylistFirstTrackUrl(resource)) return "playlist-only · 첫 곡 URL 권장";
+  if (status === "loading") return "플레이어 연결 중";
+  if (status === "buffering") return "버퍼링 중";
+  if (status === "playing") return "재생 중 · YouTube embed";
+  if (status === "paused") return "일시정지됨 · YouTube embed";
+  return getYouTubeMusicResourceLabel(resource);
+}
+
+function getMusicPlaybackStatusFromYouTubeState(state: number): MusicPlaybackStatus {
+  if (state === 1) return "playing";
+  if (state === 2) return "paused";
+  if (state === 3) return "buffering";
+  if (state === 0) return "ended";
+  if (state === 5) return "ready";
+  return "ready";
+}
 
 function usePersistentDashboard() {
   const supabaseClient = useMemo(() => createSupabaseBrowserClient(), []);
@@ -334,7 +438,10 @@ export default function Home() {
   const [newEvent, setNewEvent] = useState("");
   const [newBookmark, setNewBookmark] = useState("");
   const [newCard, setNewCard] = useState("");
-  const [musicPlaying, setMusicPlaying] = useState(true);
+  const [musicPlaybackStatus, setMusicPlaybackStatus] = useState<MusicPlaybackStatus>("idle");
+  const [musicPlayerError, setMusicPlayerError] = useState<YouTubePlayerError | null>(null);
+  const musicPlayerRef = useRef<YouTubePlayerInstance | null>(null);
+  const pendingMusicCommandRef = useRef<"play" | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("week");
@@ -349,6 +456,16 @@ export default function Home() {
   const pinnedBookmarks = useMemo(() => getPinnedBookmarks(state.bookmarks, 6), [state.bookmarks]);
   const widgets = useMemo(() => normalizeWidgetConfigs(state.widgets), [state.widgets]);
   const musicResource = useMemo(() => parseYouTubeMusicResource(state.music.sourceUrl), [state.music.sourceUrl]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      musicPlayerRef.current = null;
+      pendingMusicCommandRef.current = null;
+      setMusicPlayerError(null);
+      setMusicPlaybackStatus(musicResource ? "loading" : "idle");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [musicResource]);
 
   function addTodo(title = quickText) {
     const trimmed = title.trim();
@@ -452,6 +569,71 @@ export default function Home() {
     setState((current) => ({ ...current, music: { ...current.music, ...changes } }));
   }
 
+  const handleMusicPlayerReady = useCallback((player: YouTubePlayerInstance) => {
+    musicPlayerRef.current = player;
+    setMusicPlayerError(null);
+    setMusicPlaybackStatus((current) => (current === "playing" ? current : "ready"));
+
+    if (pendingMusicCommandRef.current === "play") {
+      pendingMusicCommandRef.current = null;
+      player.playVideo?.();
+    }
+  }, []);
+
+  const handleMusicPlayerDispose = useCallback((player: YouTubePlayerInstance) => {
+    if (musicPlayerRef.current === player) {
+      musicPlayerRef.current = null;
+      setMusicPlaybackStatus(musicResource ? "loading" : "idle");
+    }
+  }, [musicResource]);
+
+  const handleMusicPlaybackStatusChange = useCallback((status: MusicPlaybackStatus) => {
+    setMusicPlaybackStatus(status);
+    if (status !== "error") setMusicPlayerError(null);
+  }, []);
+
+  const handleMusicPlayerError = useCallback((error: YouTubePlayerError) => {
+    pendingMusicCommandRef.current = null;
+    setMusicPlayerError(error);
+    setMusicPlaybackStatus("error");
+  }, []);
+
+  const toggleMusicPlayback = useCallback(() => {
+    if (!musicResource) {
+      setIsMusicSettingsOpen(true);
+      return;
+    }
+
+    const player = musicPlayerRef.current;
+    const shouldPause = musicPlaybackStatus === "playing" || musicPlaybackStatus === "buffering";
+
+    if (!player) {
+      pendingMusicCommandRef.current = shouldPause ? null : "play";
+      setMusicPlaybackStatus("loading");
+      setView("Home");
+      return;
+    }
+
+    if (shouldPause) {
+      player.pauseVideo?.();
+      return;
+    }
+
+    setMusicPlayerError(null);
+    player.playVideo?.();
+  }, [musicPlaybackStatus, musicResource]);
+
+  const skipMusicTrack = useCallback((direction: "previous" | "next") => {
+    const player = musicPlayerRef.current;
+    if (!player) {
+      setView("Home");
+      setMusicPlaybackStatus(musicResource ? "loading" : "idle");
+      return;
+    }
+    if (direction === "previous") player.previousVideo?.();
+    if (direction === "next") player.nextVideo?.();
+  }, [musicResource]);
+
   function removeItem(kind: "todos" | "events" | "bookmarks" | "cards", id: string) {
     setState((current) => ({
       ...current,
@@ -462,7 +644,7 @@ export default function Home() {
 
   return (
     <main className={theme === "dark" ? "app-frame dark-mode" : "app-frame"}>
-      <TopMusicPlayer playing={musicPlaying} setPlaying={setMusicPlaying} music={state.music} resource={musicResource} onOpenSettings={() => setIsMusicSettingsOpen(true)} />
+      <TopMusicPlayer music={state.music} resource={musicResource} playbackStatus={musicPlaybackStatus} playbackError={musicPlayerError} onOpenSettings={() => setIsMusicSettingsOpen(true)} onTogglePlayback={toggleMusicPlayback} onPreviousTrack={() => skipMusicTrack("previous")} onNextTrack={() => skipMusicTrack("next")} />
       <div className="workspace-shell">
         <aside className="sidebar">
           <div className="brand-lockup"><span className="brand-mark">H</span><strong>My Home</strong></div>
@@ -478,7 +660,7 @@ export default function Home() {
 
         <section className="content-area">
           <PageHeader view={view} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} isDashboardEditing={isDashboardEditing} setIsDashboardEditing={setIsDashboardEditing} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />
-          {view === "Home" && <HomeDashboard state={state} summary={summary} pinnedBookmarks={pinnedBookmarks} widgets={widgets} isEditing={isDashboardEditing} musicResource={musicResource} setView={setView} toggleTodo={toggleTodo} toggleWidget={toggleWidget} changeWidgetSize={changeWidgetSize} moveWidget={moveWidget} updateMemo={updateMemo} updateMusic={updateMusic} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />}
+          {view === "Home" && <HomeDashboard state={state} summary={summary} pinnedBookmarks={pinnedBookmarks} widgets={widgets} isEditing={isDashboardEditing} musicResource={musicResource} onPlayerReady={handleMusicPlayerReady} onPlayerDispose={handleMusicPlayerDispose} onPlaybackStatusChange={handleMusicPlaybackStatusChange} onPlayerError={handleMusicPlayerError} setView={setView} toggleTodo={toggleTodo} toggleWidget={toggleWidget} changeWidgetSize={changeWidgetSize} moveWidget={moveWidget} updateMemo={updateMemo} updateMusic={updateMusic} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />}
           {view === "Today" && <TodayView todos={state.todos} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} toggleTodo={toggleTodo} removeTodo={(id) => removeItem("todos", id)} />}
           {view === "Projects" && <ProjectsView projects={state.projects} setSelectedProjectId={setSelectedProjectId} setView={setView} />}
           {view === "Kanban" && <KanbanView projects={state.projects} selectedProjectId={selectedProject.id} setSelectedProjectId={setSelectedProjectId} columns={columns} newCard={newCard} setNewCard={setNewCard} addCard={addCard} moveCard={moveCard} removeCard={(id) => removeItem("cards", id)} selectCard={setSelectedCardId} />}
@@ -489,27 +671,44 @@ export default function Home() {
       </div>
       <KanbanDetailDrawer card={selectedCard} project={selectedCard ? state.projects.find((project) => project.id === selectedCard.projectId) : undefined} onClose={() => setSelectedCardId(null)} onUpdate={updateCard} />
       <WidgetManagerDrawer open={isWidgetManagerOpen} widgets={widgets} onClose={() => setIsWidgetManagerOpen(false)} onToggle={toggleWidget} onSizeChange={changeWidgetSize} onMove={moveWidget} onReset={resetWidgets} />
-      <MusicSettingsDrawer open={isMusicSettingsOpen} music={state.music} resource={musicResource} onClose={() => setIsMusicSettingsOpen(false)} onChange={updateMusic} />
+      <MusicSettingsDrawer open={isMusicSettingsOpen} music={state.music} resource={musicResource} onClose={() => setIsMusicSettingsOpen(false)} onChange={updateMusic} onPlayerReady={handleMusicPlayerReady} onPlayerDispose={handleMusicPlayerDispose} onPlaybackStatusChange={handleMusicPlaybackStatusChange} onPlayerError={handleMusicPlayerError} />
     </main>
   );
 }
 
-function TopMusicPlayer({ playing, setPlaying, music, resource, onOpenSettings }: { playing: boolean; setPlaying: (playing: boolean) => void; music: MusicSettings; resource: YouTubeMusicResource | null; onOpenSettings: () => void }) {
+function TopMusicPlayer({ music, resource, playbackStatus, playbackError, onOpenSettings, onTogglePlayback, onPreviousTrack, onNextTrack }: { music: MusicSettings; resource: YouTubeMusicResource | null; playbackStatus: MusicPlaybackStatus; playbackError: YouTubePlayerError | null; onOpenSettings: () => void; onTogglePlayback: () => void; onPreviousTrack: () => void; onNextTrack: () => void }) {
+  const isPlaying = playbackStatus === "playing" || playbackStatus === "buffering";
+  const canSkip = Boolean(resource);
+  const playButtonLabel = !resource ? "음악 링크 설정" : isPlaying ? "플레이어 일시정지" : playbackStatus === "loading" ? "플레이어 연결 후 재생" : playbackStatus === "error" ? "플레이어 다시 재생 시도" : "플레이어 재생";
+
   return (
     <header className="top-music-bar">
       <div className="page-context"><span className={resource ? "status-dot" : "status-dot muted"} /> Home · 작업 대시보드</div>
-      <div className={playing && resource ? "music-player playing" : "music-player"}>
-        <div className="album-cover" aria-label="앨범 커버" />
-        <div className="track-copy"><strong>{music.title}</strong><span>{resource ? getYouTubeMusicResourceLabel(resource) : music.subtitle}</span></div>
+      <div className={isPlaying && resource ? "music-player playing" : "music-player"}>
+        <AlbumCover resource={resource} />
+        <div className="track-copy"><strong>{music.title}</strong><span>{getTopPlayerSubtitle(music, resource, playbackStatus, playbackError)}</span></div>
         <div className="live-waveform" aria-hidden="true">{Array.from({ length: 24 }).map((_, index) => <i key={index} />)}</div>
-        <div className="music-controls"><button aria-label="상단 음악 설정" onClick={onOpenSettings}><SlidersHorizontal size={15} /></button><button aria-label="이전 트랙"><ChevronLeft size={16} /></button><button aria-label={playing ? "플레이어 일시정지" : "플레이어 재생"} onClick={() => setPlaying(!playing)}>{playing ? "Ⅱ" : "▶"}</button><button aria-label="다음 트랙"><ChevronRight size={16} /></button></div>
+        <div className="music-controls">
+          <button className="music-control-button settings" aria-label="상단 음악 설정" onClick={onOpenSettings}><SlidersHorizontal size={15} /></button>
+          <button className="music-control-button secondary" aria-label="이전 트랙" onClick={onPreviousTrack} disabled={!canSkip}><ChevronLeft size={16} /></button>
+          <button className={isPlaying ? "music-control-button play-toggle playing" : "music-control-button play-toggle"} aria-label={playButtonLabel} onClick={onTogglePlayback}>{isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}</button>
+          <button className="music-control-button secondary" aria-label="다음 트랙" onClick={onNextTrack} disabled={!canSkip}><ChevronRight size={16} /></button>
+        </div>
       </div>
       <div className="top-actions"><button className="soft-button"><Search size={16} />검색</button><button className="icon-button"><Settings size={17} /></button></div>
     </header>
   );
 }
 
-function MusicSettingsDrawer({ open, music, resource, onClose, onChange }: { open: boolean; music: MusicSettings; resource: YouTubeMusicResource | null; onClose: () => void; onChange: (changes: Partial<MusicSettings>) => void }) {
+function AlbumCover({ resource, small = false }: { resource: YouTubeMusicResource | null; small?: boolean }) {
+  const thumbnailUrl = resource ? getYouTubeThumbnailUrl(resource) : undefined;
+  const className = ["album-cover", small ? "small" : "", thumbnailUrl ? "has-image" : ""].filter(Boolean).join(" ");
+  const style = thumbnailUrl ? ({ "--cover-image": `url(${thumbnailUrl})` } as React.CSSProperties) : undefined;
+
+  return <div className={className} style={style} aria-label={thumbnailUrl ? "YouTube 영상 썸네일 커버" : "앨범 커버"} />;
+}
+
+function MusicSettingsDrawer({ open, music, resource, onClose, onChange, onPlayerReady, onPlayerDispose, onPlaybackStatusChange, onPlayerError }: { open: boolean; music: MusicSettings; resource: YouTubeMusicResource | null; onClose: () => void; onChange: (changes: Partial<MusicSettings>) => void; onPlayerReady: (player: YouTubePlayerInstance) => void; onPlayerDispose: (player: YouTubePlayerInstance) => void; onPlaybackStatusChange: (status: MusicPlaybackStatus) => void; onPlayerError: (error: YouTubePlayerError) => void }) {
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -539,7 +738,7 @@ function MusicSettingsDrawer({ open, music, resource, onClose, onChange }: { ope
           <strong>상단 플레이어에 표시할 YouTube Music 링크를 연결하세요.</strong>
           <p>공식 YouTube Music 재생 API 대신 YouTube iframe embed를 사용합니다. playlist, watch, youtu.be 링크를 붙여 넣을 수 있습니다.</p>
         </div>
-        <MusicWidget music={music} resource={resource} onChange={onChange} />
+        <MusicWidget music={music} resource={resource} onChange={onChange} onPlayerReady={onPlayerReady} onPlayerDispose={onPlayerDispose} onPlaybackStatusChange={onPlaybackStatusChange} onPlayerError={onPlayerError} />
       </aside>
     </div>
   );
@@ -580,7 +779,7 @@ function PageHeader({ view, quickText, setQuickText, addTodo, isDashboardEditing
   );
 }
 
-function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, musicResource, setView, toggleTodo, toggleWidget, changeWidgetSize, moveWidget, updateMemo, updateMusic, onOpenWidgetManager }: { state: DashboardState; summary: ReturnType<typeof calculateDashboardSummary>; pinnedBookmarks: BookmarkItem[]; widgets: WidgetConfig[]; isEditing: boolean; musicResource: YouTubeMusicResource | null; setView: (view: AppView) => void; toggleTodo: (id: string) => void; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; updateMemo: (memo: string) => void; updateMusic: (changes: Partial<MusicSettings>) => void; onOpenWidgetManager: () => void }) {
+function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, musicResource, onPlayerReady, onPlayerDispose, onPlaybackStatusChange, onPlayerError, setView, toggleTodo, toggleWidget, changeWidgetSize, moveWidget, updateMemo, updateMusic, onOpenWidgetManager }: { state: DashboardState; summary: ReturnType<typeof calculateDashboardSummary>; pinnedBookmarks: BookmarkItem[]; widgets: WidgetConfig[]; isEditing: boolean; musicResource: YouTubeMusicResource | null; onPlayerReady: (player: YouTubePlayerInstance) => void; onPlayerDispose: (player: YouTubePlayerInstance) => void; onPlaybackStatusChange: (status: MusicPlaybackStatus) => void; onPlayerError: (error: YouTubePlayerError) => void; setView: (view: AppView) => void; toggleTodo: (id: string) => void; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; updateMemo: (memo: string) => void; updateMusic: (changes: Partial<MusicSettings>) => void; onOpenWidgetManager: () => void }) {
   const visibleWidgets = getVisibleWidgetConfigs(widgets);
   const widgetContext = { isEditing, toggleWidget, changeWidgetSize, moveWidget };
 
@@ -618,7 +817,7 @@ function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, mu
     }
 
     if (config.type === "music") {
-      return <DashboardWidgetFrame key={config.id} config={config} title="음악 플레이리스트" {...widgetContext}><MusicWidget music={state.music} resource={musicResource} onChange={updateMusic} /></DashboardWidgetFrame>;
+      return <DashboardWidgetFrame key={config.id} config={config} title="음악 플레이리스트" {...widgetContext}><MusicWidget music={state.music} resource={musicResource} onChange={updateMusic} onPlayerReady={onPlayerReady} onPlayerDispose={onPlayerDispose} onPlaybackStatusChange={onPlaybackStatusChange} onPlayerError={onPlayerError} /></DashboardWidgetFrame>;
     }
 
     return null;
@@ -627,8 +826,9 @@ function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, mu
   return <div className={isEditing ? "dashboard-grid editing" : "dashboard-grid"}>{visibleWidgets.map(renderWidget)}{visibleWidgets.length === 0 ? <section className="dashboard-empty-state card"><span className="pill">빈 대시보드</span><h2>보이는 위젯이 없어요.</h2><p>위젯 관리에서 필요한 위젯을 다시 켜면 나만의 홈 화면을 바로 복구할 수 있습니다.</p><button className="primary-button" onClick={onOpenWidgetManager}><SlidersHorizontal size={16} />위젯 관리 열기</button></section> : null}</div>;
 }
 
-function MusicWidget({ music, resource, onChange }: { music: MusicSettings; resource: YouTubeMusicResource | null; onChange: (changes: Partial<MusicSettings>) => void }) {
+function MusicWidget({ music, resource, onChange, onPlayerReady, onPlayerDispose, onPlaybackStatusChange, onPlayerError }: { music: MusicSettings; resource: YouTubeMusicResource | null; onChange: (changes: Partial<MusicSettings>) => void; onPlayerReady: (player: YouTubePlayerInstance) => void; onPlayerDispose: (player: YouTubePlayerInstance) => void; onPlaybackStatusChange: (status: MusicPlaybackStatus) => void; onPlayerError: (error: YouTubePlayerError) => void }) {
   const draftUrlRef = useRef<HTMLInputElement | null>(null);
+  const isPlaylistOnly = resource ? needsPlaylistFirstTrackUrl(resource) : false;
 
   function applyMusicUrl() {
     onChange({ sourceUrl: draftUrlRef.current?.value ?? music.sourceUrl });
@@ -637,7 +837,7 @@ function MusicWidget({ music, resource, onChange }: { music: MusicSettings; reso
   return (
     <div className="music-integration">
       <div className={resource ? "music-widget-card connected" : "music-widget-card"}>
-        <div className="album-cover small" />
+        <AlbumCover resource={resource} small />
         <div>
           <strong>{music.title}</strong>
           <span>{resource ? getYouTubeMusicResourceLabel(resource) : "YouTube Music 또는 YouTube 링크 대기 중"}</span>
@@ -648,19 +848,98 @@ function MusicWidget({ music, resource, onChange }: { music: MusicSettings; reso
         <label>설명<input value={music.subtitle} onChange={(event) => onChange({ subtitle: event.target.value })} placeholder="autumn focus · playlist" /></label>
       </div>
       <form className="music-url-form" onSubmit={(event) => { event.preventDefault(); applyMusicUrl(); }}>
-        <label className="music-url-field">YouTube Music / YouTube URL<input key={music.sourceUrl} ref={draftUrlRef} defaultValue={music.sourceUrl} onBlur={applyMusicUrl} placeholder="https://music.youtube.com/playlist?list=..." /></label>
+        <label className="music-url-field">YouTube Music / YouTube URL<input key={music.sourceUrl} ref={draftUrlRef} defaultValue={music.sourceUrl} onBlur={applyMusicUrl} placeholder="https://music.youtube.com/watch?v=...&list=..." /></label>
         <button className="soft-button" type="submit">연결</button>
       </form>
       {resource ? (
         <>
-          <div className="youtube-embed-shell">
-            <iframe src={resource.embedUrl} title={`${music.title} YouTube player`} loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen />
-          </div>
+          {isPlaylistOnly ? <PlaylistOnlyGuidance /> : null}
+          <YouTubeEmbedPlayer music={music} resource={resource} onPlayerReady={onPlayerReady} onPlayerDispose={onPlayerDispose} onPlaybackStatusChange={onPlaybackStatusChange} onPlayerError={onPlayerError} />
           <a className="music-open-link" href={resource.sourceUrl} target="_blank" rel="noreferrer">YouTube Music에서 열기</a>
         </>
       ) : (
-        <div className="music-empty-state"><strong>플레이리스트를 연결하세요.</strong><span>YouTube Music playlist, YouTube playlist, watch, youtu.be 링크를 붙여 넣으면 iframe 플레이어로 재생할 수 있습니다.</span></div>
+        <div className="music-empty-state"><strong>플레이리스트를 연결하세요.</strong><span>YouTube Music playlist, YouTube playlist, watch, youtu.be 링크를 붙여 넣으면 iframe 플레이어로 재생할 수 있습니다. 가능하면 곡을 클릭한 뒤 watch?v=...가 포함된 URL을 넣어주세요.</span></div>
       )}
+    </div>
+  );
+}
+
+function PlaylistOnlyGuidance() {
+  return (
+    <div className="music-guidance-state" role="note">
+      <span><AlertTriangle size={16} /></span>
+      <div>
+        <strong>playlist-only URL은 첫 곡을 못 찾을 수 있어요.</strong>
+        <p>YouTube Music에서 재생목록 안의 곡 하나를 클릭한 뒤 <code>watch?v=...&amp;list=...</code> 형태의 URL을 붙여 넣으면 커버와 iframe 재생 안정성이 좋아집니다.</p>
+      </div>
+    </div>
+  );
+}
+
+function YouTubeEmbedPlayer({ music, resource, onPlayerReady, onPlayerDispose, onPlaybackStatusChange, onPlayerError }: { music: MusicSettings; resource: YouTubeMusicResource; onPlayerReady: (player: YouTubePlayerInstance) => void; onPlayerDispose: (player: YouTubePlayerInstance) => void; onPlaybackStatusChange: (status: MusicPlaybackStatus) => void; onPlayerError: (error: YouTubePlayerError) => void }) {
+  const reactId = useId().replace(/:/g, "");
+  const iframeId = `youtube-player-${reactId}`;
+  const [embedOrigin, setEmbedOrigin] = useState<string | undefined>();
+  const [playerError, setPlayerError] = useState<YouTubePlayerError | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const playerRef = useRef<YouTubePlayerInstance | null>(null);
+  const playerSrc = useMemo(() => getYouTubePlayerEmbedUrl(resource, embedOrigin), [embedOrigin, resource]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setEmbedOrigin(window.location.origin), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => () => {
+    const player = playerRef.current;
+    if (player) {
+      onPlayerDispose(player);
+      player.destroy?.();
+    }
+    playerRef.current = null;
+  }, [onPlayerDispose, playerSrc]);
+
+  function handleIframeLoad() {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    setPlayerError(null);
+    onPlaybackStatusChange("loading");
+    loadYouTubeIframeApi().then((api) => {
+      if (!api?.Player || iframeRef.current !== iframe || !iframe.isConnected) return;
+      let player: YouTubePlayerInstance | null = null;
+      player = new api.Player(iframe, {
+        events: {
+          onReady: () => {
+            if (!player) return;
+            playerRef.current = player;
+            onPlayerReady(player);
+            onPlaybackStatusChange("ready");
+          },
+          onStateChange: (event) => onPlaybackStatusChange(getMusicPlaybackStatusFromYouTubeState(event.data)),
+          onError: (event) => {
+            const error = describeYouTubePlayerError(event.data);
+            setPlayerError(error);
+            onPlayerError(error);
+          },
+        },
+      });
+    });
+  }
+
+  return (
+    <div className={playerError ? "youtube-embed-shell has-error" : "youtube-embed-shell"}>
+      <iframe id={iframeId} key={playerSrc} ref={iframeRef} src={playerSrc} title={`${music.title} YouTube player`} loading="lazy" onLoad={handleIframeLoad} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen />
+      {playerError ? (
+        <div className="youtube-error-overlay" role="alert">
+          <span><AlertTriangle size={17} /></span>
+          <div>
+            <strong>{playerError.title}</strong>
+            <p>{playerError.description}</p>
+            <em>오류 코드 {playerError.code}</em>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
