@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import {
   closestCorners,
   DndContext,
@@ -74,115 +75,19 @@ import {
   type Todo,
   type WidgetConfig,
 } from "@/lib/dashboard";
+import { loadDashboardStateFromCloud, saveDashboardStateToCloud } from "@/lib/dashboard-cloud-sync";
+import {
+  DASHBOARD_STORAGE_KEY,
+  initialState,
+  normalizeDashboardState,
+  parseDashboardState,
+  serializeDashboardState,
+  todayKey,
+  type DashboardState,
+} from "@/lib/dashboard-state";
+import { createSupabaseBrowserClient, getSupabaseBrowserConfigStatus } from "@/lib/supabase";
 
 type AppView = "Home" | "Today" | "Projects" | "Kanban" | "Calendar" | "Bookmarks" | "Settings";
-
-type DashboardState = {
-  projects: Project[];
-  todos: Todo[];
-  events: CalendarEvent[];
-  bookmarks: BookmarkItem[];
-  cards: KanbanCard[];
-  widgets: WidgetConfig[];
-  memo: string;
-};
-
-const todayKey = "2026-06-13";
-
-const initialState: DashboardState = {
-  projects: [
-    { id: "p1", name: "DIY Home Dashboard", status: "active", progress: 68, dueDate: "2026-06-20" },
-    { id: "p2", name: "CS Study Plan", status: "active", progress: 45, dueDate: "2026-06-30" },
-    { id: "p3", name: "Portfolio Archive", status: "paused", progress: 28 },
-  ],
-  todos: [
-    { id: "t1", title: "오전 루틴 체크", completed: true, date: todayKey },
-    { id: "t2", title: "프로젝트 구조 정리", completed: false, date: todayKey },
-    { id: "t3", title: "강의 2개 수강", completed: false, date: todayKey },
-    { id: "t4", title: "회고 메모 남기기", completed: false, date: todayKey },
-  ],
-  events: [
-    { id: "e1", title: "알고리즘 스터디", startAt: "2026-06-13T13:00:00" },
-    { id: "e2", title: "프로젝트 회고", startAt: "2026-06-13T20:30:00" },
-    { id: "e3", title: "자료 정리", startAt: "2026-06-15T10:00:00" },
-  ],
-  bookmarks: [
-    { id: "b1", title: "GitHub", url: "https://github.com", pinned: true, category: "Dev" },
-    { id: "b2", title: "Notion", url: "https://notion.so", pinned: true, category: "Workspace" },
-    { id: "b3", title: "Vercel", url: "https://vercel.com", pinned: true, category: "Deploy" },
-    { id: "b4", title: "MDN Docs", url: "https://developer.mozilla.org", pinned: false, category: "Docs" },
-  ],
-  cards: [
-    {
-      id: "c1",
-      projectId: "p1",
-      title: "북마크 카테고리 설계",
-      column: "Backlog",
-      order: 0,
-      priority: "medium",
-      description: "자주 쓰는 링크와 공부 자료를 분리해서 빠르게 찾을 수 있는 카테고리 구조를 설계한다.",
-      startDate: "2026-06-12",
-      dueDate: "2026-06-18",
-      assignee: "me",
-      reporter: "me",
-      labels: ["UX", "Bookmarks"],
-      createdAt: "2026-06-12",
-      updatedAt: "2026-06-13",
-    },
-    {
-      id: "c2",
-      projectId: "p1",
-      title: "상단 음악 플레이어 구현",
-      column: "Doing",
-      order: 0,
-      priority: "high",
-      description: "앨범 커버와 live waveform visualizer가 있는 상단 고정 플레이어를 구현한다.",
-      startDate: "2026-06-13",
-      dueDate: "2026-06-15",
-      assignee: "me",
-      reporter: "me",
-      labels: ["Music", "Motion"],
-      createdAt: "2026-06-13",
-      updatedAt: "2026-06-13",
-    },
-    {
-      id: "c3",
-      projectId: "p1",
-      title: "달력 입력 UX 확인",
-      column: "Review",
-      order: 0,
-      priority: "medium",
-      description: "일정 추가/수정/삭제와 주간/월간 모드가 직관적인지 확인한다.",
-      startDate: "2026-06-14",
-      dueDate: "2026-06-19",
-      assignee: "me",
-      reporter: "me",
-      labels: ["Calendar"],
-      createdAt: "2026-06-13",
-      updatedAt: "2026-06-13",
-    },
-    {
-      id: "c4",
-      projectId: "p1",
-      title: "YouTube Music fallback 조사",
-      column: "Waiting",
-      order: 0,
-      priority: "high",
-      description: "비공식 API가 막힐 때 YouTube embed 또는 playlist URL 기반으로 대체하는 전략을 조사한다.",
-      startDate: "2026-06-16",
-      dueDate: "2026-06-22",
-      assignee: "me",
-      reporter: "me",
-      labels: ["Integration", "Risk"],
-      createdAt: "2026-06-13",
-      updatedAt: "2026-06-13",
-    },
-    { id: "c5", projectId: "p2", title: "운영체제 강의 정리", column: "To Do", order: 0, priority: "medium", description: "프로세스/스레드 파트를 요약한다.", dueDate: "2026-06-24", labels: ["Study"] },
-    { id: "c6", projectId: "p2", title: "네트워크 복습", column: "Later", order: 0, priority: "low", description: "HTTP, TCP/IP 복습 자료를 모은다.", dueDate: "2026-07-01", labels: ["Study"] },
-  ],
-  widgets: DEFAULT_WIDGET_CONFIGS,
-  memo: "오늘 떠오른 아이디어와 임시 메모를 여기에 남겨두세요.",
-};
 
 const navItems: { view: AppView; icon: React.ReactNode; shortcut: string }[] = [
   { view: "Home", icon: <LayoutDashboard size={17} />, shortcut: "⌘1" },
@@ -198,42 +103,230 @@ function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+type DashboardSyncStatus = "local" | "checking" | "cloud" | "saving" | "synced" | "error" | "email-sent";
+
+type DashboardAccount = {
+  user: User | null;
+  clientReady: boolean;
+  configKeyName: string;
+  syncStatus: DashboardSyncStatus;
+  syncMessage: string;
+  authEmail: string;
+  authPending: boolean;
+  authError: string | null;
+  authNotice: string | null;
+  setAuthEmail: (value: string) => void;
+  signIn: () => Promise<void>;
+  signOut: () => Promise<void>;
+};
+
 function usePersistentDashboard() {
+  const supabaseClient = useMemo(() => createSupabaseBrowserClient(), []);
+  const supabaseConfig = useMemo(() => getSupabaseBrowserConfigStatus(), []);
   const [state, setState] = useState<DashboardState>(initialState);
-  const hydratedRef = useRef(false);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [syncStatus, setSyncStatus] = useState<DashboardSyncStatus>(supabaseConfig.ready ? "checking" : "local");
+  const [syncMessage, setSyncMessage] = useState(supabaseConfig.ready ? "계정 상태 확인 중" : "Supabase 환경변수 없음 · 이 기기 로컬 저장");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPending, setAuthPending] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const cloudHydratingRef = useRef(false);
+  const lastSyncedSnapshotRef = useRef("");
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const stored = window.localStorage.getItem("diy-home-dashboard-state");
-      if (stored) {
-        const parsed = JSON.parse(stored) as Partial<DashboardState>;
-        setState({
-          ...initialState,
-          ...parsed,
-          cards: (parsed.cards ?? initialState.cards).map((card) => ({
-            description: "",
-            labels: [],
-            ...card,
-          })),
-          widgets: normalizeWidgetConfigs(parsed.widgets),
-          memo: parsed.memo ?? initialState.memo,
-        });
-      }
-      hydratedRef.current = true;
+      setState(parseDashboardState(window.localStorage.getItem(DASHBOARD_STORAGE_KEY)));
+      setIsHydrated(true);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    if (hydratedRef.current) window.localStorage.setItem("diy-home-dashboard-state", JSON.stringify(state));
-  }, [state]);
+    if (!isHydrated) return;
+    window.localStorage.setItem(DASHBOARD_STORAGE_KEY, serializeDashboardState(state));
+  }, [isHydrated, state]);
 
-  return [state, setState] as const;
+  useEffect(() => {
+    if (!supabaseClient) return;
+
+    let cancelled = false;
+
+    supabaseClient.auth.getUser().then(({ data }) => {
+      if (cancelled) return;
+      const nextUser = data.user ?? null;
+      setUser(nextUser);
+      if (!nextUser) {
+        setSyncStatus("local");
+        setSyncMessage("로그인하면 여러 기기에서 같은 대시보드를 사용할 수 있습니다.");
+      }
+    });
+
+    const { data: authListener } = supabaseClient.auth.onAuthStateChange((_event, session) => {
+      const nextUser = session?.user ?? null;
+      setUser(nextUser);
+      setAuthError(null);
+      if (!nextUser) {
+        lastSyncedSnapshotRef.current = "";
+        setSyncStatus("local");
+        setSyncMessage("로그아웃됨 · 이 기기에 계속 저장됩니다.");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      authListener.subscription.unsubscribe();
+    };
+  }, [supabaseClient]);
+
+  useEffect(() => {
+    if (!isHydrated || !supabaseClient || !user) return;
+
+    let cancelled = false;
+    const client = supabaseClient;
+    const currentUser = user;
+    cloudHydratingRef.current = true;
+
+    async function hydrateCloudState() {
+      setSyncStatus("checking");
+      setSyncMessage("Supabase에서 내 대시보드를 불러오는 중");
+
+      try {
+        const { state: cloudState, updatedAt } = await loadDashboardStateFromCloud(client, currentUser.id);
+        if (cancelled) return;
+
+        if (cloudState) {
+          lastSyncedSnapshotRef.current = serializeDashboardState(cloudState);
+          setState(cloudState);
+          setSyncStatus("cloud");
+          setSyncMessage(updatedAt ? `클라우드 데이터 불러옴 · ${new Date(updatedAt).toLocaleString("ko-KR")}` : "클라우드 데이터 불러옴");
+          return;
+        }
+
+        const seedState = normalizeDashboardState(stateRef.current);
+        const syncedState = await saveDashboardStateToCloud(client, currentUser.id, seedState);
+        if (cancelled) return;
+        lastSyncedSnapshotRef.current = serializeDashboardState(syncedState);
+        setSyncStatus("cloud");
+        setSyncMessage("이 기기의 데이터를 계정에 처음 저장했습니다.");
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setSyncStatus("error");
+        setSyncMessage(error instanceof Error ? error.message : "클라우드 동기화 실패");
+      } finally {
+        if (!cancelled) cloudHydratingRef.current = false;
+      }
+    }
+
+    void hydrateCloudState();
+
+    return () => {
+      cancelled = true;
+      cloudHydratingRef.current = false;
+    };
+  }, [isHydrated, supabaseClient, user]);
+
+  useEffect(() => {
+    if (!isHydrated || !supabaseClient || !user || cloudHydratingRef.current) return;
+
+    const snapshot = serializeDashboardState(state);
+    if (snapshot === lastSyncedSnapshotRef.current) return;
+
+    const client = supabaseClient;
+    const userId = user.id;
+    setSyncStatus("saving");
+    setSyncMessage("변경사항을 클라우드에 저장 중");
+
+    const timer = window.setTimeout(() => {
+      saveDashboardStateToCloud(client, userId, state)
+        .then((syncedState) => {
+          lastSyncedSnapshotRef.current = serializeDashboardState(syncedState);
+          setSyncStatus("synced");
+          setSyncMessage("모든 기기에 저장됨");
+        })
+        .catch((error: unknown) => {
+          setSyncStatus("error");
+          setSyncMessage(error instanceof Error ? error.message : "클라우드 저장 실패");
+        });
+    }, 700);
+
+    return () => window.clearTimeout(timer);
+  }, [isHydrated, state, supabaseClient, user]);
+
+  async function signIn() {
+    if (!supabaseClient) {
+      setAuthError("Supabase 환경변수를 먼저 연결해야 합니다.");
+      return;
+    }
+
+    const email = authEmail.trim();
+    if (!email) {
+      setAuthError("로그인할 이메일을 입력하세요.");
+      return;
+    }
+
+    setAuthPending(true);
+    setAuthError(null);
+    setAuthNotice(null);
+
+    const { error } = await supabaseClient.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    });
+
+    setAuthPending(false);
+
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+
+    setAuthNotice("인증 메일을 보냈습니다. 메일 링크로 돌아오면 클라우드 동기화가 시작됩니다.");
+    setSyncStatus("email-sent");
+    setSyncMessage("이메일 인증 대기 중");
+  }
+
+  async function signOut() {
+    if (!supabaseClient) return;
+    setAuthPending(true);
+    const { error } = await supabaseClient.auth.signOut();
+    setAuthPending(false);
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+    setUser(null);
+  }
+
+  return [
+    state,
+    setState,
+    {
+      user,
+      clientReady: supabaseConfig.ready,
+      configKeyName: supabaseConfig.keyName,
+      syncStatus,
+      syncMessage,
+      authEmail,
+      authPending,
+      authError,
+      authNotice,
+      setAuthEmail,
+      signIn,
+      signOut,
+    } satisfies DashboardAccount,
+  ] as const;
 }
 
 export default function Home() {
   const [view, setView] = useState<AppView>("Home");
-  const [state, setState] = usePersistentDashboard();
+  const [state, setState, account] = usePersistentDashboard();
   const [selectedProjectId, setSelectedProjectId] = useState("p1");
   const [quickText, setQuickText] = useState("");
   const [newEvent, setNewEvent] = useState("");
@@ -246,7 +339,7 @@ export default function Home() {
   const [isDashboardEditing, setIsDashboardEditing] = useState(false);
   const [isWidgetManagerOpen, setIsWidgetManagerOpen] = useState(false);
 
-  const selectedProject = state.projects.find((project) => project.id === selectedProjectId) ?? state.projects[0];
+  const selectedProject = state.projects.find((project) => project.id === selectedProjectId) ?? state.projects[0] ?? initialState.projects[0];
   const selectedCard = state.cards.find((card) => card.id === selectedCardId) ?? null;
   const summary = useMemo(() => calculateDashboardSummary(state, todayKey), [state]);
   const columns = useMemo(() => getKanbanColumns(state.cards, selectedProject.id), [state.cards, selectedProject.id]);
@@ -372,11 +465,7 @@ export default function Home() {
               </button>
             ))}
           </nav>
-          <div className="sync-card">
-            <span className="status-dot" />
-            <strong>Supabase sync ready</strong>
-            <p>환경변수를 연결하면 같은 계정으로 여러 기기 동기화가 가능합니다. 현재는 로컬 저장으로 동작합니다.</p>
-          </div>
+          <SyncCard account={account} onOpenSettings={() => setView("Settings")} />
         </aside>
 
         <section className="content-area">
@@ -387,7 +476,7 @@ export default function Home() {
           {view === "Kanban" && <KanbanView projects={state.projects} selectedProjectId={selectedProject.id} setSelectedProjectId={setSelectedProjectId} columns={columns} newCard={newCard} setNewCard={setNewCard} addCard={addCard} moveCard={moveCard} removeCard={(id) => removeItem("cards", id)} selectCard={setSelectedCardId} />}
           {view === "Calendar" && <CalendarView events={state.events} newEvent={newEvent} setNewEvent={setNewEvent} addEvent={addEvent} removeEvent={(id) => removeItem("events", id)} mode={calendarMode} setMode={setCalendarMode} />}
           {view === "Bookmarks" && <BookmarksView bookmarks={state.bookmarks} newBookmark={newBookmark} setNewBookmark={setNewBookmark} addBookmark={addBookmark} removeBookmark={(id) => removeItem("bookmarks", id)} />}
-          {view === "Settings" && <SettingsView theme={theme} setTheme={setTheme} />}
+          {view === "Settings" && <SettingsView theme={theme} setTheme={setTheme} account={account} />}
         </section>
       </div>
       <KanbanDetailDrawer card={selectedCard} project={selectedCard ? state.projects.find((project) => project.id === selectedCard.projectId) : undefined} onClose={() => setSelectedCardId(null)} onUpdate={updateCard} />
@@ -408,6 +497,28 @@ function TopMusicPlayer({ playing, setPlaying }: { playing: boolean; setPlaying:
       </div>
       <div className="top-actions"><button className="soft-button"><Search size={16} />검색</button><button className="icon-button"><Settings size={17} /></button></div>
     </header>
+  );
+}
+
+function SyncCard({ account, onOpenSettings }: { account: DashboardAccount; onOpenSettings: () => void }) {
+  const signedIn = Boolean(account.user);
+  const title = !account.clientReady ? "Local mode" : signedIn ? "Cloud sync active" : "Account sync ready";
+  const description = signedIn
+    ? account.syncMessage
+    : account.clientReady
+      ? "이메일로 로그인하면 같은 계정의 모든 기기에서 같은 대시보드를 사용합니다."
+      : "Supabase 환경변수를 연결하면 계정 기반 멀티 디바이스 동기화가 켜집니다.";
+
+  return (
+    <div className={`sync-card sync-${account.syncStatus}`}>
+      <span className="status-dot" />
+      <strong>{title}</strong>
+      <p>{description}</p>
+      {signedIn ? <em>{account.user?.email}</em> : null}
+      <button className="sync-card-action" onClick={signedIn ? () => void account.signOut() : onOpenSettings}>
+        {signedIn ? "로그아웃" : "계정 연결"}
+      </button>
+    </div>
   );
 }
 
@@ -730,6 +841,41 @@ function CalendarView({ events, newEvent, setNewEvent, addEvent, removeEvent, mo
 
 function BookmarksView({ bookmarks, newBookmark, setNewBookmark, addBookmark, removeBookmark }: { bookmarks: BookmarkItem[]; newBookmark: string; setNewBookmark: (value: string) => void; addBookmark: () => void; removeBookmark: (id: string) => void }) { return <section className="panel-card card"><div className="form-row"><input value={newBookmark} onChange={(event) => setNewBookmark(event.target.value)} placeholder="제목 | https://url.com" /><button className="primary-button" onClick={addBookmark}>북마크 추가</button></div><div className="bookmark-table">{bookmarks.map((bookmark) => <a key={bookmark.id} href={bookmark.url} target="_blank"><strong>{bookmark.title}</strong><span>{bookmark.category}</span><button onClick={(event) => { event.preventDefault(); removeBookmark(bookmark.id); }}><Trash2 size={15} /></button></a>)}</div></section>; }
 
-function SettingsView({ theme, setTheme }: { theme: "light" | "dark"; setTheme: (theme: "light" | "dark") => void }) { return <section className="panel-card card"><h2>설정</h2><p>Supabase URL/Anon Key를 환경변수로 연결하면 Auth와 클라우드 DB 동기화로 확장됩니다.</p><div className="settings-grid"><button className="settings-theme-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")}><span>{theme === "light" ? <Moon size={17} /> : <Sun size={17} />}</span><strong>{theme === "light" ? "다크모드로 전환" : "라이트모드로 전환"}</strong><em>테마 변경은 Settings에서만 관리합니다.</em></button><code>NEXT_PUBLIC_SUPABASE_URL</code><code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code><code>YouTube Music: 비공식 연동 시도 + embed fallback</code></div></section>; }
+function SettingsView({ theme, setTheme, account }: { theme: "light" | "dark"; setTheme: (theme: "light" | "dark") => void; account: DashboardAccount }) {
+  return (
+    <section className="panel-card card">
+      <h2>설정</h2>
+      <p>로그인하면 Supabase Auth와 사용자별 RLS가 적용된 클라우드 저장으로 여러 기기에서 같은 대시보드를 사용합니다.</p>
+      <div className="settings-grid">
+        <button className="settings-theme-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")}>
+          <span>{theme === "light" ? <Moon size={17} /> : <Sun size={17} />}</span>
+          <strong>{theme === "light" ? "다크모드로 전환" : "라이트모드로 전환"}</strong>
+          <em>테마 변경은 Settings에서만 관리합니다.</em>
+        </button>
+        <div className="settings-account-card">
+          <span className="pill">Account sync</span>
+          <strong>{account.user?.email ?? "로그인되지 않음"}</strong>
+          <p>{account.syncMessage}</p>
+          {account.user ? (
+            <button className="soft-button" disabled={account.authPending} onClick={() => void account.signOut()}>로그아웃</button>
+          ) : account.clientReady ? (
+            <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void account.signIn(); }}>
+              <input type="email" value={account.authEmail} onChange={(event) => account.setAuthEmail(event.target.value)} placeholder="you@example.com" aria-label="로그인 이메일" />
+              <button className="primary-button" disabled={account.authPending}>{account.authPending ? "전송 중" : "매직링크 받기"}</button>
+            </form>
+          ) : (
+            <div className="env-warning">Vercel 또는 .env.local에 Supabase URL과 publishable key를 추가하세요.</div>
+          )}
+          {account.authNotice ? <em className="auth-notice">{account.authNotice}</em> : null}
+          {account.authError ? <em className="auth-error">{account.authError}</em> : null}
+        </div>
+        <code>NEXT_PUBLIC_SUPABASE_URL</code>
+        <code>{account.configKeyName}</code>
+        <code>YouTube Music: 비공식 연동 시도 + embed fallback</code>
+        <code>Storage: local fallback + dashboard_states JSONB sync</code>
+      </div>
+    </section>
+  );
+}
 
 function CalendarMini({ events, large = false }: { events: CalendarEvent[]; large?: boolean }) { const eventDays = new Set(events.map((event) => Number(event.startAt.slice(8, 10)))); return <div className={large ? "calendar-mini large" : "calendar-mini"}>{[9, 10, 11, 12, 13, 14, 15].map((day) => <span key={day} className={eventDays.has(day) ? "event-day" : day === 13 ? "today-day" : ""}>{day}</span>)}</div>; }

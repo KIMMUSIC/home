@@ -48,4 +48,13 @@ describe("dashboard page structure", () => {
     expect(stylesSource).toContain(".widget-manager-item");
     expect(stylesSource).toContain(".widget-wide");
   });
+
+  it("renders account sync controls with local fallback copy", () => {
+    expect(pageSource).toContain("SyncCard");
+    expect(pageSource).toContain("Account sync");
+    expect(pageSource).toContain("settings-account-card");
+    expect(pageSource).toContain("dashboard_states JSONB sync");
+    expect(stylesSource).toContain(".settings-account-card");
+    expect(stylesSource).toContain(".sync-card-action");
+  });
 });

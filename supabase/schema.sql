@@ -76,9 +76,19 @@ alter table calendar_events enable row level security;
 alter table bookmarks enable row level security;
 alter table kanban_cards enable row level security;
 
+create table if not exists dashboard_states (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  state jsonb not null default '{}'::jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table dashboard_states enable row level security;
+
 create policy "profiles owner" on profiles for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "projects owner" on projects for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "todos owner" on todos for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "events owner" on calendar_events for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "bookmarks owner" on bookmarks for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "cards owner" on kanban_cards for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "dashboard states owner" on dashboard_states for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
