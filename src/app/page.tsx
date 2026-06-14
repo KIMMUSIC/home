@@ -21,6 +21,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  ArrowDown,
+  ArrowUp,
   Bookmark,
   CalendarDays,
   CheckCircle2,
@@ -29,6 +31,8 @@ import {
   ChevronRight,
   Circle,
   Clock3,
+  Eye,
+  EyeOff,
   LayoutDashboard,
   ListChecks,
   Moon,
@@ -36,6 +40,7 @@ import {
   Plus,
   Search,
   Settings,
+  SlidersHorizontal,
   Sparkles,
   Sun,
   Trash2,
@@ -43,21 +48,31 @@ import {
 } from "lucide-react";
 import {
   calculateDashboardSummary,
+  DEFAULT_WIDGET_CONFIGS,
   getCalendarDays,
   getKanbanColumns,
   getKanbanDragOverlayStyle,
   getKanbanPriorityLabel,
   getPinnedBookmarks,
+  getVisibleWidgetConfigs,
+  getWidgetTitle,
   moveKanbanCardForDnd,
+  moveWidgetConfig,
+  normalizeWidgetConfigs,
   parseKanbanLabelsInput,
+  setWidgetSize,
+  setWidgetVisibility,
   updateKanbanCardDetails,
   type Bookmark as BookmarkItem,
   type CalendarEvent,
   type CalendarMode,
+  type DashboardWidgetSize,
+  type DashboardWidgetType,
   type KanbanCard,
   type KanbanColumnName,
   type Project,
   type Todo,
+  type WidgetConfig,
 } from "@/lib/dashboard";
 
 type AppView = "Home" | "Today" | "Projects" | "Kanban" | "Calendar" | "Bookmarks" | "Settings";
@@ -68,6 +83,8 @@ type DashboardState = {
   events: CalendarEvent[];
   bookmarks: BookmarkItem[];
   cards: KanbanCard[];
+  widgets: WidgetConfig[];
+  memo: string;
 };
 
 const todayKey = "2026-06-13";
@@ -163,6 +180,8 @@ const initialState: DashboardState = {
     { id: "c5", projectId: "p2", title: "운영체제 강의 정리", column: "To Do", order: 0, priority: "medium", description: "프로세스/스레드 파트를 요약한다.", dueDate: "2026-06-24", labels: ["Study"] },
     { id: "c6", projectId: "p2", title: "네트워크 복습", column: "Later", order: 0, priority: "low", description: "HTTP, TCP/IP 복습 자료를 모은다.", dueDate: "2026-07-01", labels: ["Study"] },
   ],
+  widgets: DEFAULT_WIDGET_CONFIGS,
+  memo: "오늘 떠오른 아이디어와 임시 메모를 여기에 남겨두세요.",
 };
 
 const navItems: { view: AppView; icon: React.ReactNode; shortcut: string }[] = [
@@ -187,15 +206,17 @@ function usePersistentDashboard() {
     const timer = window.setTimeout(() => {
       const stored = window.localStorage.getItem("diy-home-dashboard-state");
       if (stored) {
-        const parsed = JSON.parse(stored) as DashboardState;
+        const parsed = JSON.parse(stored) as Partial<DashboardState>;
         setState({
           ...initialState,
           ...parsed,
-          cards: parsed.cards.map((card) => ({
+          cards: (parsed.cards ?? initialState.cards).map((card) => ({
             description: "",
             labels: [],
             ...card,
           })),
+          widgets: normalizeWidgetConfigs(parsed.widgets),
+          memo: parsed.memo ?? initialState.memo,
         });
       }
       hydratedRef.current = true;
@@ -222,12 +243,15 @@ export default function Home() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("week");
+  const [isDashboardEditing, setIsDashboardEditing] = useState(false);
+  const [isWidgetManagerOpen, setIsWidgetManagerOpen] = useState(false);
 
   const selectedProject = state.projects.find((project) => project.id === selectedProjectId) ?? state.projects[0];
   const selectedCard = state.cards.find((card) => card.id === selectedCardId) ?? null;
   const summary = useMemo(() => calculateDashboardSummary(state, todayKey), [state]);
   const columns = useMemo(() => getKanbanColumns(state.cards, selectedProject.id), [state.cards, selectedProject.id]);
   const pinnedBookmarks = useMemo(() => getPinnedBookmarks(state.bookmarks, 6), [state.bookmarks]);
+  const widgets = useMemo(() => normalizeWidgetConfigs(state.widgets), [state.widgets]);
 
   function addTodo(title = quickText) {
     const trimmed = title.trim();
@@ -303,7 +327,31 @@ export default function Home() {
     setState((current) => ({ ...current, cards: updateKanbanCardDetails(current.cards, id, changes) }));
   }
 
-  function removeItem(kind: keyof DashboardState, id: string) {
+  function updateWidgetConfigs(updater: (widgets: WidgetConfig[]) => WidgetConfig[]) {
+    setState((current) => ({ ...current, widgets: normalizeWidgetConfigs(updater(current.widgets)) }));
+  }
+
+  function toggleWidget(type: DashboardWidgetType, enabled: boolean) {
+    updateWidgetConfigs((current) => setWidgetVisibility(current, type, enabled));
+  }
+
+  function changeWidgetSize(type: DashboardWidgetType, size: DashboardWidgetSize) {
+    updateWidgetConfigs((current) => setWidgetSize(current, type, size));
+  }
+
+  function moveWidget(type: DashboardWidgetType, direction: "up" | "down") {
+    updateWidgetConfigs((current) => moveWidgetConfig(current, type, direction));
+  }
+
+  function resetWidgets() {
+    setState((current) => ({ ...current, widgets: DEFAULT_WIDGET_CONFIGS }));
+  }
+
+  function updateMemo(memo: string) {
+    setState((current) => ({ ...current, memo }));
+  }
+
+  function removeItem(kind: "todos" | "events" | "bookmarks" | "cards", id: string) {
     setState((current) => ({
       ...current,
       [kind]: current[kind].filter((item) => item.id !== id),
@@ -332,8 +380,8 @@ export default function Home() {
         </aside>
 
         <section className="content-area">
-          <PageHeader view={view} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} />
-          {view === "Home" && <HomeDashboard state={state} summary={summary} pinnedBookmarks={pinnedBookmarks} setView={setView} toggleTodo={toggleTodo} />}
+          <PageHeader view={view} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} isDashboardEditing={isDashboardEditing} setIsDashboardEditing={setIsDashboardEditing} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />
+          {view === "Home" && <HomeDashboard state={state} summary={summary} pinnedBookmarks={pinnedBookmarks} widgets={widgets} isEditing={isDashboardEditing} setView={setView} toggleTodo={toggleTodo} toggleWidget={toggleWidget} changeWidgetSize={changeWidgetSize} moveWidget={moveWidget} updateMemo={updateMemo} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />}
           {view === "Today" && <TodayView todos={state.todos} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} toggleTodo={toggleTodo} removeTodo={(id) => removeItem("todos", id)} />}
           {view === "Projects" && <ProjectsView projects={state.projects} setSelectedProjectId={setSelectedProjectId} setView={setView} />}
           {view === "Kanban" && <KanbanView projects={state.projects} selectedProjectId={selectedProject.id} setSelectedProjectId={setSelectedProjectId} columns={columns} newCard={newCard} setNewCard={setNewCard} addCard={addCard} moveCard={moveCard} removeCard={(id) => removeItem("cards", id)} selectCard={setSelectedCardId} />}
@@ -343,6 +391,7 @@ export default function Home() {
         </section>
       </div>
       <KanbanDetailDrawer card={selectedCard} project={selectedCard ? state.projects.find((project) => project.id === selectedCard.projectId) : undefined} onClose={() => setSelectedCardId(null)} onUpdate={updateCard} />
+      <WidgetManagerDrawer open={isWidgetManagerOpen} widgets={widgets} onClose={() => setIsWidgetManagerOpen(false)} onToggle={toggleWidget} onSizeChange={changeWidgetSize} onMove={moveWidget} onReset={resetWidgets} />
     </main>
   );
 }
@@ -362,28 +411,87 @@ function TopMusicPlayer({ playing, setPlaying }: { playing: boolean; setPlaying:
   );
 }
 
-function PageHeader({ view, quickText, setQuickText, addTodo }: { view: AppView; quickText: string; setQuickText: (value: string) => void; addTodo: () => void }) {
+function PageHeader({ view, quickText, setQuickText, addTodo, isDashboardEditing, setIsDashboardEditing, onOpenWidgetManager }: { view: AppView; quickText: string; setQuickText: (value: string) => void; addTodo: () => void; isDashboardEditing: boolean; setIsDashboardEditing: (value: boolean) => void; onOpenWidgetManager: () => void }) {
+  const isHome = view === "Home";
   return (
     <div className="page-header">
-      <div><span className="pill">JUNE 13 · SATURDAY</span><h1>{view === "Home" ? "오늘의 작업실" : view}</h1><p>정돈된 생산성 홈에서 할 일, 프로젝트, 일정, 북마크와 음악을 함께 관리합니다.</p></div>
-      <div className="quick-add"><input value={quickText} onChange={(event) => setQuickText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addTodo(); }} placeholder="할 일을 빠르게 추가" /><button className="primary-button" onClick={addTodo}><Plus size={16} />추가</button></div>
+      <div><span className="pill">JUNE 13 · SATURDAY</span><h1>{isHome ? "오늘의 작업실" : view}</h1><p>정돈된 생산성 홈에서 할 일, 프로젝트, 일정, 북마크와 음악을 함께 관리합니다.</p></div>
+      <div className="page-header-actions">
+        <div className="quick-add"><input value={quickText} onChange={(event) => setQuickText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addTodo(); }} placeholder="할 일을 빠르게 추가" /><button className="primary-button" onClick={addTodo}><Plus size={16} />추가</button></div>
+        {isHome ? <div className="dashboard-edit-actions"><button className="soft-button" onClick={onOpenWidgetManager}><SlidersHorizontal size={16} />위젯 관리</button><button className={isDashboardEditing ? "soft-button active" : "soft-button"} onClick={() => setIsDashboardEditing(!isDashboardEditing)}>{isDashboardEditing ? "편집 완료" : "편집 모드"}</button></div> : null}
+      </div>
     </div>
   );
 }
 
-function HomeDashboard({ state, summary, pinnedBookmarks, setView, toggleTodo }: { state: DashboardState; summary: ReturnType<typeof calculateDashboardSummary>; pinnedBookmarks: BookmarkItem[]; setView: (view: AppView) => void; toggleTodo: (id: string) => void }) {
-  return <div className="dashboard-grid">
-    <section className="hero-card card"><span className="pill">좋은 아침 · 집중 모드</span><h2>오늘은 프로젝트 흐름을 정리하기 좋은 날이에요.</h2><p>작업 대시보드에서 오늘 할 일과 일정, 프로젝트 상태를 먼저 확인하고 상세 화면으로 이동하세요.</p><div className="metric-row"><span>오늘 할 일 {summary.todayTodos}</span><span>리뷰 대기 {summary.reviewCards}</span><span>일정 {summary.todayEvents}</span><span>평균 진행 {summary.averageProgress}%</span></div></section>
-    <section className="clock-card card"><Clock3 size={18} /><strong>10:42</strong><span>다음 일정 · 13:00 알고리즘 스터디</span><div className="progress"><i style={{ width: `${summary.averageProgress}%` }} /></div></section>
-    <Widget title="오늘의 할 일" action="Today" onAction={() => setView("Today")}><ul className="plain-list">{state.todos.slice(0, 5).map((todo) => <li key={todo.id}><button onClick={() => toggleTodo(todo.id)}>{todo.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button><span className={todo.completed ? "done" : ""}>{todo.title}</span></li>)}</ul></Widget>
-    <Widget title="프로젝트 현황" action="Projects" onAction={() => setView("Projects")}><div className="stack">{state.projects.map((project) => <div className="project-mini" key={project.id}><strong>{project.name}</strong><div className="progress"><i style={{ width: `${project.progress}%` }} /></div></div>)}</div></Widget>
-    <Widget title="이번 주 달력" action="Calendar" onAction={() => setView("Calendar")}><CalendarMini events={state.events} /></Widget>
-    <Widget title="칸반 미리보기" action="Kanban" onAction={() => setView("Kanban")} wide><div className="kanban-strip">{["Backlog", "Doing", "Review"].map((column) => <div key={column}><strong>{column}</strong>{state.cards.filter((card) => card.column === column).slice(0, 2).map((card) => <span key={card.id}>{card.title}</span>)}</div>)}</div></Widget>
-    <Widget title="북마크" action="Bookmarks" onAction={() => setView("Bookmarks")}><div className="bookmark-grid">{pinnedBookmarks.map((bookmark) => <a key={bookmark.id} href={bookmark.url} target="_blank">{bookmark.title}</a>)}</div></Widget>
-  </div>;
+function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, setView, toggleTodo, toggleWidget, changeWidgetSize, moveWidget, updateMemo, onOpenWidgetManager }: { state: DashboardState; summary: ReturnType<typeof calculateDashboardSummary>; pinnedBookmarks: BookmarkItem[]; widgets: WidgetConfig[]; isEditing: boolean; setView: (view: AppView) => void; toggleTodo: (id: string) => void; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; updateMemo: (memo: string) => void; onOpenWidgetManager: () => void }) {
+  const visibleWidgets = getVisibleWidgetConfigs(widgets);
+  const widgetContext = { isEditing, toggleWidget, changeWidgetSize, moveWidget };
+
+  function renderWidget(config: WidgetConfig) {
+    if (config.type === "focus") {
+      return <DashboardWidgetFrame key={config.id} config={config} variant="hero" {...widgetContext}><span className="pill">좋은 아침 · 집중 모드</span><h2>오늘은 프로젝트 흐름을 정리하기 좋은 날이에요.</h2><p>작업 대시보드에서 오늘 할 일과 일정, 프로젝트 상태를 먼저 확인하고 상세 화면으로 이동하세요.</p><div className="metric-row"><span>오늘 할 일 {summary.todayTodos}</span><span>리뷰 대기 {summary.reviewCards}</span><span>일정 {summary.todayEvents}</span><span>평균 진행 {summary.averageProgress}%</span></div></DashboardWidgetFrame>;
+    }
+
+    if (config.type === "clock") {
+      return <DashboardWidgetFrame key={config.id} config={config} variant="clock" {...widgetContext}><Clock3 size={18} /><strong>10:42</strong><span>다음 일정 · 13:00 알고리즘 스터디</span><div className="progress"><i style={{ width: `${summary.averageProgress}%` }} /></div></DashboardWidgetFrame>;
+    }
+
+    if (config.type === "today") {
+      return <DashboardWidgetFrame key={config.id} config={config} title="오늘의 할 일" action="Today" onAction={() => setView("Today")} {...widgetContext}><ul className="plain-list">{state.todos.slice(0, 5).map((todo) => <li key={todo.id}><button onClick={() => toggleTodo(todo.id)}>{todo.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button><span className={todo.completed ? "done" : ""}>{todo.title}</span></li>)}</ul></DashboardWidgetFrame>;
+    }
+
+    if (config.type === "projects") {
+      return <DashboardWidgetFrame key={config.id} config={config} title="프로젝트 현황" action="Projects" onAction={() => setView("Projects")} {...widgetContext}><div className="stack">{state.projects.map((project) => <div className="project-mini" key={project.id}><strong>{project.name}</strong><div className="progress"><i style={{ width: `${project.progress}%` }} /></div></div>)}</div></DashboardWidgetFrame>;
+    }
+
+    if (config.type === "calendar") {
+      return <DashboardWidgetFrame key={config.id} config={config} title="이번 주 달력" action="Calendar" onAction={() => setView("Calendar")} {...widgetContext}><CalendarMini events={state.events} /></DashboardWidgetFrame>;
+    }
+
+    if (config.type === "kanban") {
+      return <DashboardWidgetFrame key={config.id} config={config} title="칸반 미리보기" action="Kanban" onAction={() => setView("Kanban")} {...widgetContext}><div className="kanban-strip">{["Backlog", "Doing", "Review"].map((column) => <div key={column}><strong>{column}</strong>{state.cards.filter((card) => card.column === column).slice(0, 2).map((card) => <span key={card.id}>{card.title}</span>)}</div>)}</div></DashboardWidgetFrame>;
+    }
+
+    if (config.type === "bookmarks") {
+      return <DashboardWidgetFrame key={config.id} config={config} title="북마크" action="Bookmarks" onAction={() => setView("Bookmarks")} {...widgetContext}><div className="bookmark-grid">{pinnedBookmarks.map((bookmark) => <a key={bookmark.id} href={bookmark.url} target="_blank">{bookmark.title}</a>)}</div></DashboardWidgetFrame>;
+    }
+
+    if (config.type === "memo") {
+      return <DashboardWidgetFrame key={config.id} config={config} title="메모" {...widgetContext}><textarea className="memo-widget-input" value={state.memo} onChange={(event) => updateMemo(event.target.value)} aria-label="대시보드 메모" /></DashboardWidgetFrame>;
+    }
+
+    return <DashboardWidgetFrame key={config.id} config={config} title="음악 플레이리스트" {...widgetContext}><div className="music-widget-card"><div className="album-cover small" /><div><strong>warm desk session</strong><span>autumn focus · YouTube Music UI</span></div></div><div className="playlist-lines"><span /><span /><span /></div></DashboardWidgetFrame>;
+  }
+
+  return <div className={isEditing ? "dashboard-grid editing" : "dashboard-grid"}>{visibleWidgets.map(renderWidget)}{visibleWidgets.length === 0 ? <section className="dashboard-empty-state card"><span className="pill">빈 대시보드</span><h2>보이는 위젯이 없어요.</h2><p>위젯 관리에서 필요한 위젯을 다시 켜면 나만의 홈 화면을 바로 복구할 수 있습니다.</p><button className="primary-button" onClick={onOpenWidgetManager}><SlidersHorizontal size={16} />위젯 관리 열기</button></section> : null}</div>;
 }
 
-function Widget({ title, action, onAction, wide, children }: { title: string; action: string; onAction: () => void; wide?: boolean; children: React.ReactNode }) { return <section className={wide ? "widget card wide" : "widget card"}><div className="widget-head"><h3>{title}</h3><button onClick={onAction}>{action}</button></div>{children}</section>; }
+function DashboardWidgetFrame({ config, title, action, onAction, variant, isEditing, toggleWidget, changeWidgetSize, moveWidget, children }: { config: WidgetConfig; title?: string; action?: string; onAction?: () => void; variant?: "hero" | "clock"; isEditing: boolean; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; children: React.ReactNode }) {
+  const className = ["widget", "card", `widget-${config.size}`, variant === "hero" ? "hero-card" : "", variant === "clock" ? "clock-card" : "", isEditing ? "is-editing" : ""].filter(Boolean).join(" ");
+  return <section className={className} data-widget-type={config.type}>{isEditing ? <WidgetEditControls config={config} onToggle={toggleWidget} onSizeChange={changeWidgetSize} onMove={moveWidget} /> : null}{title ? <div className="widget-head"><h3>{title}</h3>{action && onAction ? <button onClick={onAction}>{action}</button> : null}</div> : null}{children}</section>;
+}
+
+function WidgetEditControls({ config, onToggle, onSizeChange, onMove }: { config: WidgetConfig; onToggle: (type: DashboardWidgetType, enabled: boolean) => void; onSizeChange: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; onMove: (type: DashboardWidgetType, direction: "up" | "down") => void }) {
+  return <div className="widget-edit-panel" aria-label={`${config.title} 위젯 편집`}><div className="widget-edit-row"><button onClick={() => onMove(config.type, "up")} aria-label={`${config.title} 위로 이동`}><ArrowUp size={13} /></button><button onClick={() => onMove(config.type, "down")} aria-label={`${config.title} 아래로 이동`}><ArrowDown size={13} /></button><button onClick={() => onToggle(config.type, false)} aria-label={`${config.title} 숨기기`}><EyeOff size={13} />숨김</button></div><div className="widget-size-switch" aria-label={`${config.title} 크기 선택`}>{(["small", "medium", "wide"] as DashboardWidgetSize[]).map((size) => <button key={size} className={config.size === size ? "active" : ""} onClick={() => onSizeChange(config.type, size)}>{size}</button>)}</div></div>;
+}
+
+function WidgetManagerDrawer({ open, widgets, onClose, onToggle, onSizeChange, onMove, onReset }: { open: boolean; widgets: WidgetConfig[]; onClose: () => void; onToggle: (type: DashboardWidgetType, enabled: boolean) => void; onSizeChange: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; onMove: (type: DashboardWidgetType, direction: "up" | "down") => void; onReset: () => void }) {
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  const orderedWidgets = normalizeWidgetConfigs(widgets);
+  const visibleCount = orderedWidgets.filter((widget) => widget.enabled).length;
+
+  return <div className="drawer-backdrop" onClick={onClose}><aside className="widget-manager-drawer" role="dialog" aria-modal="true" aria-labelledby="widget-manager-title" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><div className="drawer-title-group"><span className="pill">DIY dashboard</span><h2 id="widget-manager-title">위젯 관리</h2><div className="drawer-meta-row"><span>{visibleCount}개 표시 중</span><span>순서 · 크기 · 숨김</span></div></div><button className="icon-button" onClick={onClose} aria-label="위젯 관리 닫기"><X size={18} /></button></div><div className="widget-manager-intro"><strong>매일 보고 싶은 화면만 남기세요.</strong><p>편집 모드에서는 각 위젯 카드 위에서도 빠르게 순서와 크기를 바꿀 수 있습니다.</p></div><div className="widget-manager-list">{orderedWidgets.map((widget, index) => <article className={widget.enabled ? "widget-manager-item" : "widget-manager-item disabled"} key={widget.type}><div className="widget-manager-main"><button className="visibility-toggle" onClick={() => onToggle(widget.type, !widget.enabled)} aria-label={`${widget.title} ${widget.enabled ? "숨기기" : "보이기"}`}>{widget.enabled ? <Eye size={16} /> : <EyeOff size={16} />}</button><div><strong>{getWidgetTitle(widget.type)}</strong><span>{widget.enabled ? "대시보드에 표시" : "숨김 상태"}</span></div></div><div className="widget-manager-controls"><button onClick={() => onMove(widget.type, "up")} disabled={index === 0} aria-label={`${widget.title} 위로 이동`}><ArrowUp size={14} /></button><button onClick={() => onMove(widget.type, "down")} disabled={index === orderedWidgets.length - 1} aria-label={`${widget.title} 아래로 이동`}><ArrowDown size={14} /></button><div className="widget-size-switch">{(["small", "medium", "wide"] as DashboardWidgetSize[]).map((size) => <button key={size} className={widget.size === size ? "active" : ""} onClick={() => onSizeChange(widget.type, size)}>{size}</button>)}</div></div></article>)}</div><div className="drawer-footer"><button className="soft-button" onClick={onReset}>기본값 복원</button><button className="primary-button" onClick={onClose}>완료</button></div></aside></div>;
+}
 
 function TodayView({ todos, quickText, setQuickText, addTodo, toggleTodo, removeTodo }: { todos: Todo[]; quickText: string; setQuickText: (value: string) => void; addTodo: () => void; toggleTodo: (id: string) => void; removeTodo: (id: string) => void }) { return <section className="panel-card card"><div className="form-row"><input value={quickText} onChange={(event) => setQuickText(event.target.value)} placeholder="오늘 할 일 추가" /><button className="primary-button" onClick={() => addTodo()}>추가</button></div><ul className="detail-list">{todos.map((todo) => <li key={todo.id}><button onClick={() => toggleTodo(todo.id)}>{todo.completed ? <CheckCircle2 /> : <Circle />}</button><span className={todo.completed ? "done" : ""}>{todo.title}</span><em>{todo.date}</em><button onClick={() => removeTodo(todo.id)}><Trash2 size={16} /></button></li>)}</ul></section>; }
 

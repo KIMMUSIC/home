@@ -35,4 +35,17 @@ describe("dashboard page structure", () => {
     expect(stylesSource).toContain("grid-column: 3");
     expect(stylesSource).toContain("white-space: nowrap");
   });
+
+  it("renders dashboard edit mode and widget management controls", () => {
+    expect(pageSource).toContain("isDashboardEditing");
+    expect(pageSource).toContain("dashboard-edit-actions");
+    expect(pageSource).toContain("WidgetManagerDrawer");
+    expect(pageSource).toContain("widget-manager-drawer");
+    expect(pageSource).toContain("widget-edit-panel");
+    expect(pageSource).toContain("dashboard-empty-state");
+    expect(pageSource).toContain("memo-widget-input");
+    expect(stylesSource).toContain(".widget-size-switch");
+    expect(stylesSource).toContain(".widget-manager-item");
+    expect(stylesSource).toContain(".widget-wide");
+  });
 });
