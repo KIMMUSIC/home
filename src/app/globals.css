@@ -127,6 +127,12 @@ button:hover, .bookmark-grid a:hover, .bookmark-table a:hover { transform: trans
 .dark-mode .nav-item.active, .dark-mode .nav-item:hover { background: rgba(255,247,235,.08); }
 .sync-card { margin-top: 28px; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); font-size: 12px; line-height: 1.55; color: var(--muted); }
 .sync-card strong { display: block; margin: 10px 0 6px; color: var(--ink); }
+.sync-card p { margin: 0; }
+.sync-card em { display: block; margin-top: 8px; color: var(--ink); font-style: normal; font-weight: 800; word-break: break-all; }
+.sync-card-action { width: 100%; min-height: 34px; margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-solid); color: var(--ink); font-weight: 800; transition: .18s ease; }
+.sync-card.sync-cloud, .sync-card.sync-synced { border-color: rgba(143,164,141,.34); background: linear-gradient(180deg, rgba(255,254,251,.8), rgba(143,164,141,.1)); }
+.sync-card.sync-saving { border-color: rgba(230,201,115,.42); }
+.sync-card.sync-error { border-color: rgba(197,139,116,.44); background: rgba(197,139,116,.1); }
 .content-area { padding: 30px 38px 90px; }
 .page-header { display: grid; grid-template-columns: 1fr minmax(360px, 520px); gap: 20px; align-items: end; margin-bottom: 18px; }
 .page-header h1 { margin: 10px 0 7px; font-size: 36px; line-height: 1.02; letter-spacing: -0.055em; }
@@ -134,6 +140,7 @@ button:hover, .bookmark-grid a:hover, .bookmark-table a:hover { transform: trans
 .quick-add input, .form-row input, .form-row select, .kanban-add-card input { height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-solid); color: var(--ink); padding: 0 12px; min-width: 0; }
 .quick-add input { width: 260px; }
 .pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.5); color: var(--muted); font-size: 12px; font-weight: 700; }
+
 .card { border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: 0 1px 0 rgba(255,255,255,.72) inset; }
 .dashboard-grid { display: grid; grid-template-columns: 1.08fr .92fr .82fr; gap: 18px; align-items: start; }
 .dashboard-grid.editing .widget { outline: 1px dashed rgba(143,164,141,.42); outline-offset: 4px; }
@@ -400,6 +407,28 @@ button:hover, .bookmark-grid a:hover, .bookmark-table a:hover { transform: trans
 .settings-theme-button strong { font-size: 14px; letter-spacing: -0.025em; }
 .settings-theme-button em { color: var(--muted); font-size: 12px; font-style: normal; line-height: 1.4; }
 .settings-theme-button:hover { transform: translateY(-1px); border-color: var(--line-strong); }
+
+.settings-account-card {
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: linear-gradient(180deg, var(--card-solid), rgba(143,164,141,.08));
+  color: var(--ink);
+  padding: 14px;
+}
+.settings-account-card > strong { font-size: 14px; letter-spacing: -0.025em; word-break: break-all; }
+.settings-account-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.auth-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.auth-form input { height: 38px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-solid); color: var(--ink); padding: 0 11px; min-width: 0; }
+.auth-form input:focus { outline: none; border-color: rgba(143,164,141,.58); box-shadow: 0 0 0 3px rgba(143,164,141,.14); }
+.auth-notice, .auth-error, .env-warning { display: block; border-radius: 10px; padding: 9px 10px; font-size: 12px; font-style: normal; line-height: 1.45; }
+.auth-notice { background: rgba(143,164,141,.13); color: var(--ink); }
+.auth-error { background: rgba(197,139,116,.14); color: #9d563e; }
+.env-warning { background: rgba(230,201,115,.16); color: var(--muted); }
+button:disabled { cursor: not-allowed; opacity: .52; transform: none; }
 
 @keyframes cover-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
 @keyframes wave-pulse { 0%, 100% { transform: scaleY(.5); opacity: .45; } 50% { transform: scaleY(1); opacity: 1; } }
