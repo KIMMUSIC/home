@@ -59,6 +59,28 @@ Supabase Dashboard에서:
 
 로그인 후 첫 접속 시 이 기기의 로컬 데이터를 Supabase 계정에 seed하고, 이후 변경사항은 debounce 후 `dashboard_states`에 upsert합니다.
 
+## YouTube Music integration
+
+공식 YouTube Music 재생 API 대신, 안정적으로 동작하는 YouTube iframe embed 방식을 사용합니다.
+
+지원하는 URL 예시:
+
+```txt
+https://music.youtube.com/playlist?list=PLAYLIST_ID
+https://www.youtube.com/playlist?list=PLAYLIST_ID
+https://music.youtube.com/watch?v=VIDEO_ID&list=PLAYLIST_ID
+https://www.youtube.com/watch?v=VIDEO_ID
+https://youtu.be/VIDEO_ID
+```
+
+사용 방법:
+
+1. Home 대시보드에서 `음악 플레이리스트` 위젯을 찾습니다.
+2. 표시 이름과 설명을 원하는 문구로 바꿉니다.
+3. YouTube Music 또는 YouTube URL을 붙여 넣습니다.
+4. 유효한 URL이면 iframe 플레이어와 `YouTube Music에서 열기` 링크가 표시됩니다.
+5. 이 설정은 localStorage와 Supabase `dashboard_states` 동기화 대상에 포함됩니다.
+
 ## Scripts
 
 ```bash

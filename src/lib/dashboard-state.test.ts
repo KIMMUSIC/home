@@ -9,6 +9,7 @@ describe("dashboard state persistence", () => {
       memo: "클라우드 메모",
       widgets: [{ id: "memo", type: "memo", title: "Memo", enabled: false, size: "wide", order: 0 }],
       cards: [{ id: "c-local", projectId: "p1", title: "sync", column: "Backlog", order: 0 }],
+      music: { title: "  ", subtitle: "집중 플레이리스트", sourceUrl: " https://music.youtube.com/playlist?list=PLdemo " },
     });
 
     expect(normalized.memo).toBe("클라우드 메모");
@@ -16,6 +17,7 @@ describe("dashboard state persistence", () => {
     expect(normalized.widgets).toHaveLength(DEFAULT_WIDGET_CONFIGS.length);
     expect(normalized.widgets.find((widget) => widget.type === "memo")).toMatchObject({ enabled: false, size: "wide" });
     expect(normalized.cards[0]).toMatchObject({ description: "", labels: [] });
+    expect(normalized.music).toMatchObject({ title: initialState.music.title, subtitle: "집중 플레이리스트", sourceUrl: "https://music.youtube.com/playlist?list=PLdemo" });
   });
 
   it("round-trips serialized state and falls back on invalid JSON", () => {

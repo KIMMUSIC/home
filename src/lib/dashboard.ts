@@ -31,7 +31,7 @@ export const DEFAULT_WIDGET_CONFIGS: WidgetConfig[] = [
   { id: "kanban", type: "kanban", title: "칸반 미리보기", enabled: true, size: "wide", order: 5 },
   { id: "bookmarks", type: "bookmarks", title: "북마크", enabled: true, size: "medium", order: 6 },
   { id: "memo", type: "memo", title: "메모", enabled: true, size: "medium", order: 7 },
-  { id: "music", type: "music", title: "음악 플레이리스트", enabled: false, size: "medium", order: 8 },
+  { id: "music", type: "music", title: "음악 플레이리스트", enabled: true, size: "wide", order: 8 },
 ];
 
 export type Project = {

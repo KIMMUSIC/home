@@ -84,8 +84,10 @@ import {
   serializeDashboardState,
   todayKey,
   type DashboardState,
+  type MusicSettings,
 } from "@/lib/dashboard-state";
 import { createSupabaseBrowserClient, getSupabaseBrowserConfigStatus } from "@/lib/supabase";
+import { getYouTubeMusicResourceLabel, parseYouTubeMusicResource, type YouTubeMusicResource } from "@/lib/youtube-music";
 
 type AppView = "Home" | "Today" | "Projects" | "Kanban" | "Calendar" | "Bookmarks" | "Settings";
 
@@ -338,6 +340,7 @@ export default function Home() {
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("week");
   const [isDashboardEditing, setIsDashboardEditing] = useState(false);
   const [isWidgetManagerOpen, setIsWidgetManagerOpen] = useState(false);
+  const [isMusicSettingsOpen, setIsMusicSettingsOpen] = useState(false);
 
   const selectedProject = state.projects.find((project) => project.id === selectedProjectId) ?? state.projects[0] ?? initialState.projects[0];
   const selectedCard = state.cards.find((card) => card.id === selectedCardId) ?? null;
@@ -345,6 +348,7 @@ export default function Home() {
   const columns = useMemo(() => getKanbanColumns(state.cards, selectedProject.id), [state.cards, selectedProject.id]);
   const pinnedBookmarks = useMemo(() => getPinnedBookmarks(state.bookmarks, 6), [state.bookmarks]);
   const widgets = useMemo(() => normalizeWidgetConfigs(state.widgets), [state.widgets]);
+  const musicResource = useMemo(() => parseYouTubeMusicResource(state.music.sourceUrl), [state.music.sourceUrl]);
 
   function addTodo(title = quickText) {
     const trimmed = title.trim();
@@ -444,6 +448,10 @@ export default function Home() {
     setState((current) => ({ ...current, memo }));
   }
 
+  function updateMusic(changes: Partial<MusicSettings>) {
+    setState((current) => ({ ...current, music: { ...current.music, ...changes } }));
+  }
+
   function removeItem(kind: "todos" | "events" | "bookmarks" | "cards", id: string) {
     setState((current) => ({
       ...current,
@@ -454,7 +462,7 @@ export default function Home() {
 
   return (
     <main className={theme === "dark" ? "app-frame dark-mode" : "app-frame"}>
-      <TopMusicPlayer playing={musicPlaying} setPlaying={setMusicPlaying} />
+      <TopMusicPlayer playing={musicPlaying} setPlaying={setMusicPlaying} music={state.music} resource={musicResource} onOpenSettings={() => setIsMusicSettingsOpen(true)} />
       <div className="workspace-shell">
         <aside className="sidebar">
           <div className="brand-lockup"><span className="brand-mark">H</span><strong>My Home</strong></div>
@@ -470,7 +478,7 @@ export default function Home() {
 
         <section className="content-area">
           <PageHeader view={view} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} isDashboardEditing={isDashboardEditing} setIsDashboardEditing={setIsDashboardEditing} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />
-          {view === "Home" && <HomeDashboard state={state} summary={summary} pinnedBookmarks={pinnedBookmarks} widgets={widgets} isEditing={isDashboardEditing} setView={setView} toggleTodo={toggleTodo} toggleWidget={toggleWidget} changeWidgetSize={changeWidgetSize} moveWidget={moveWidget} updateMemo={updateMemo} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />}
+          {view === "Home" && <HomeDashboard state={state} summary={summary} pinnedBookmarks={pinnedBookmarks} widgets={widgets} isEditing={isDashboardEditing} musicResource={musicResource} setView={setView} toggleTodo={toggleTodo} toggleWidget={toggleWidget} changeWidgetSize={changeWidgetSize} moveWidget={moveWidget} updateMemo={updateMemo} updateMusic={updateMusic} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />}
           {view === "Today" && <TodayView todos={state.todos} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} toggleTodo={toggleTodo} removeTodo={(id) => removeItem("todos", id)} />}
           {view === "Projects" && <ProjectsView projects={state.projects} setSelectedProjectId={setSelectedProjectId} setView={setView} />}
           {view === "Kanban" && <KanbanView projects={state.projects} selectedProjectId={selectedProject.id} setSelectedProjectId={setSelectedProjectId} columns={columns} newCard={newCard} setNewCard={setNewCard} addCard={addCard} moveCard={moveCard} removeCard={(id) => removeItem("cards", id)} selectCard={setSelectedCardId} />}
@@ -481,22 +489,59 @@ export default function Home() {
       </div>
       <KanbanDetailDrawer card={selectedCard} project={selectedCard ? state.projects.find((project) => project.id === selectedCard.projectId) : undefined} onClose={() => setSelectedCardId(null)} onUpdate={updateCard} />
       <WidgetManagerDrawer open={isWidgetManagerOpen} widgets={widgets} onClose={() => setIsWidgetManagerOpen(false)} onToggle={toggleWidget} onSizeChange={changeWidgetSize} onMove={moveWidget} onReset={resetWidgets} />
+      <MusicSettingsDrawer open={isMusicSettingsOpen} music={state.music} resource={musicResource} onClose={() => setIsMusicSettingsOpen(false)} onChange={updateMusic} />
     </main>
   );
 }
 
-function TopMusicPlayer({ playing, setPlaying }: { playing: boolean; setPlaying: (playing: boolean) => void }) {
+function TopMusicPlayer({ playing, setPlaying, music, resource, onOpenSettings }: { playing: boolean; setPlaying: (playing: boolean) => void; music: MusicSettings; resource: YouTubeMusicResource | null; onOpenSettings: () => void }) {
   return (
     <header className="top-music-bar">
-      <div className="page-context"><span className="status-dot" /> Home · 작업 대시보드</div>
-      <div className={playing ? "music-player playing" : "music-player"}>
+      <div className="page-context"><span className={resource ? "status-dot" : "status-dot muted"} /> Home · 작업 대시보드</div>
+      <div className={playing && resource ? "music-player playing" : "music-player"}>
         <div className="album-cover" aria-label="앨범 커버" />
-        <div className="track-copy"><strong>warm desk session · autumn focus</strong><span>YouTube Music · playlist visualizer</span></div>
+        <div className="track-copy"><strong>{music.title}</strong><span>{resource ? getYouTubeMusicResourceLabel(resource) : music.subtitle}</span></div>
         <div className="live-waveform" aria-hidden="true">{Array.from({ length: 24 }).map((_, index) => <i key={index} />)}</div>
-        <div className="music-controls"><button><ChevronLeft size={16} /></button><button onClick={() => setPlaying(!playing)}>{playing ? "Ⅱ" : "▶"}</button><button><ChevronRight size={16} /></button></div>
+        <div className="music-controls"><button aria-label="상단 음악 설정" onClick={onOpenSettings}><SlidersHorizontal size={15} /></button><button aria-label="이전 트랙"><ChevronLeft size={16} /></button><button aria-label={playing ? "플레이어 일시정지" : "플레이어 재생"} onClick={() => setPlaying(!playing)}>{playing ? "Ⅱ" : "▶"}</button><button aria-label="다음 트랙"><ChevronRight size={16} /></button></div>
       </div>
       <div className="top-actions"><button className="soft-button"><Search size={16} />검색</button><button className="icon-button"><Settings size={17} /></button></div>
     </header>
+  );
+}
+
+function MusicSettingsDrawer({ open, music, resource, onClose, onChange }: { open: boolean; music: MusicSettings; resource: YouTubeMusicResource | null; onClose: () => void; onChange: (changes: Partial<MusicSettings>) => void }) {
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="music-settings-drawer" role="dialog" aria-modal="true" aria-labelledby="music-settings-title" onClick={(event) => event.stopPropagation()}>
+        <div className="drawer-head">
+          <div className="drawer-title-group">
+            <span className="pill">Top music player</span>
+            <h2 id="music-settings-title">상단 음악 설정</h2>
+            <div className="drawer-meta-row">
+              <span>{resource ? getYouTubeMusicResourceLabel(resource) : "URL 미연결"}</span>
+              <span>localStorage · Supabase sync</span>
+            </div>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="상단 음악 설정 닫기"><X size={18} /></button>
+        </div>
+        <div className="music-settings-intro">
+          <strong>상단 플레이어에 표시할 YouTube Music 링크를 연결하세요.</strong>
+          <p>공식 YouTube Music 재생 API 대신 YouTube iframe embed를 사용합니다. playlist, watch, youtu.be 링크를 붙여 넣을 수 있습니다.</p>
+        </div>
+        <MusicWidget music={music} resource={resource} onChange={onChange} />
+      </aside>
+    </div>
   );
 }
 
@@ -535,7 +580,7 @@ function PageHeader({ view, quickText, setQuickText, addTodo, isDashboardEditing
   );
 }
 
-function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, setView, toggleTodo, toggleWidget, changeWidgetSize, moveWidget, updateMemo, onOpenWidgetManager }: { state: DashboardState; summary: ReturnType<typeof calculateDashboardSummary>; pinnedBookmarks: BookmarkItem[]; widgets: WidgetConfig[]; isEditing: boolean; setView: (view: AppView) => void; toggleTodo: (id: string) => void; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; updateMemo: (memo: string) => void; onOpenWidgetManager: () => void }) {
+function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, musicResource, setView, toggleTodo, toggleWidget, changeWidgetSize, moveWidget, updateMemo, updateMusic, onOpenWidgetManager }: { state: DashboardState; summary: ReturnType<typeof calculateDashboardSummary>; pinnedBookmarks: BookmarkItem[]; widgets: WidgetConfig[]; isEditing: boolean; musicResource: YouTubeMusicResource | null; setView: (view: AppView) => void; toggleTodo: (id: string) => void; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; updateMemo: (memo: string) => void; updateMusic: (changes: Partial<MusicSettings>) => void; onOpenWidgetManager: () => void }) {
   const visibleWidgets = getVisibleWidgetConfigs(widgets);
   const widgetContext = { isEditing, toggleWidget, changeWidgetSize, moveWidget };
 
@@ -572,10 +617,52 @@ function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, se
       return <DashboardWidgetFrame key={config.id} config={config} title="메모" {...widgetContext}><textarea className="memo-widget-input" value={state.memo} onChange={(event) => updateMemo(event.target.value)} aria-label="대시보드 메모" /></DashboardWidgetFrame>;
     }
 
-    return <DashboardWidgetFrame key={config.id} config={config} title="음악 플레이리스트" {...widgetContext}><div className="music-widget-card"><div className="album-cover small" /><div><strong>warm desk session</strong><span>autumn focus · YouTube Music UI</span></div></div><div className="playlist-lines"><span /><span /><span /></div></DashboardWidgetFrame>;
+    if (config.type === "music") {
+      return <DashboardWidgetFrame key={config.id} config={config} title="음악 플레이리스트" {...widgetContext}><MusicWidget music={state.music} resource={musicResource} onChange={updateMusic} /></DashboardWidgetFrame>;
+    }
+
+    return null;
   }
 
   return <div className={isEditing ? "dashboard-grid editing" : "dashboard-grid"}>{visibleWidgets.map(renderWidget)}{visibleWidgets.length === 0 ? <section className="dashboard-empty-state card"><span className="pill">빈 대시보드</span><h2>보이는 위젯이 없어요.</h2><p>위젯 관리에서 필요한 위젯을 다시 켜면 나만의 홈 화면을 바로 복구할 수 있습니다.</p><button className="primary-button" onClick={onOpenWidgetManager}><SlidersHorizontal size={16} />위젯 관리 열기</button></section> : null}</div>;
+}
+
+function MusicWidget({ music, resource, onChange }: { music: MusicSettings; resource: YouTubeMusicResource | null; onChange: (changes: Partial<MusicSettings>) => void }) {
+  const draftUrlRef = useRef<HTMLInputElement | null>(null);
+
+  function applyMusicUrl() {
+    onChange({ sourceUrl: draftUrlRef.current?.value ?? music.sourceUrl });
+  }
+
+  return (
+    <div className="music-integration">
+      <div className={resource ? "music-widget-card connected" : "music-widget-card"}>
+        <div className="album-cover small" />
+        <div>
+          <strong>{music.title}</strong>
+          <span>{resource ? getYouTubeMusicResourceLabel(resource) : "YouTube Music 또는 YouTube 링크 대기 중"}</span>
+        </div>
+      </div>
+      <div className="music-settings-grid">
+        <label>표시 이름<input value={music.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="warm desk session" /></label>
+        <label>설명<input value={music.subtitle} onChange={(event) => onChange({ subtitle: event.target.value })} placeholder="autumn focus · playlist" /></label>
+      </div>
+      <form className="music-url-form" onSubmit={(event) => { event.preventDefault(); applyMusicUrl(); }}>
+        <label className="music-url-field">YouTube Music / YouTube URL<input key={music.sourceUrl} ref={draftUrlRef} defaultValue={music.sourceUrl} onBlur={applyMusicUrl} placeholder="https://music.youtube.com/playlist?list=..." /></label>
+        <button className="soft-button" type="submit">연결</button>
+      </form>
+      {resource ? (
+        <>
+          <div className="youtube-embed-shell">
+            <iframe src={resource.embedUrl} title={`${music.title} YouTube player`} loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen />
+          </div>
+          <a className="music-open-link" href={resource.sourceUrl} target="_blank" rel="noreferrer">YouTube Music에서 열기</a>
+        </>
+      ) : (
+        <div className="music-empty-state"><strong>플레이리스트를 연결하세요.</strong><span>YouTube Music playlist, YouTube playlist, watch, youtu.be 링크를 붙여 넣으면 iframe 플레이어로 재생할 수 있습니다.</span></div>
+      )}
+    </div>
+  );
 }
 
 function DashboardWidgetFrame({ config, title, action, onAction, variant, isEditing, toggleWidget, changeWidgetSize, moveWidget, children }: { config: WidgetConfig; title?: string; action?: string; onAction?: () => void; variant?: "hero" | "clock"; isEditing: boolean; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; children: React.ReactNode }) {
@@ -871,7 +958,7 @@ function SettingsView({ theme, setTheme, account }: { theme: "light" | "dark"; s
         </div>
         <code>NEXT_PUBLIC_SUPABASE_URL</code>
         <code>{account.configKeyName}</code>
-        <code>YouTube Music: 비공식 연동 시도 + embed fallback</code>
+        <code>YouTube Music: URL 기반 YouTube embed 연동</code>
         <code>Storage: local fallback + dashboard_states JSONB sync</code>
       </div>
     </section>

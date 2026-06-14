@@ -57,4 +57,17 @@ describe("dashboard page structure", () => {
     expect(stylesSource).toContain(".settings-account-card");
     expect(stylesSource).toContain(".sync-card-action");
   });
+
+  it("renders YouTube Music URL embed integration controls", () => {
+    expect(pageSource).toContain("MusicWidget");
+    expect(pageSource).toContain("MusicSettingsDrawer");
+    expect(pageSource).toContain("상단 음악 설정");
+    expect(pageSource).toContain("parseYouTubeMusicResource");
+    expect(pageSource).toContain("youtube-embed-shell");
+    expect(pageSource).toContain("YouTube Music에서 열기");
+    expect(pageSource).toContain("YouTube Music: URL 기반 YouTube embed 연동");
+    expect(stylesSource).toContain(".music-settings-drawer");
+    expect(stylesSource).toContain(".music-integration");
+    expect(stylesSource).toContain(".youtube-embed-shell");
+  });
 });

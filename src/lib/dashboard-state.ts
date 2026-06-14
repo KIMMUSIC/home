@@ -9,6 +9,12 @@ import {
   type WidgetConfig,
 } from "./dashboard";
 
+export type MusicSettings = {
+  title: string;
+  subtitle: string;
+  sourceUrl: string;
+};
+
 export type DashboardState = {
   projects: Project[];
   todos: Todo[];
@@ -17,6 +23,7 @@ export type DashboardState = {
   cards: KanbanCard[];
   widgets: WidgetConfig[];
   memo: string;
+  music: MusicSettings;
 };
 
 export const todayKey = "2026-06-13";
@@ -135,6 +142,11 @@ export const initialState: DashboardState = {
   ],
   widgets: DEFAULT_WIDGET_CONFIGS,
   memo: "오늘 떠오른 아이디어와 임시 메모를 여기에 남겨두세요.",
+  music: {
+    title: "warm desk session",
+    subtitle: "YouTube Music playlist URL을 연결하세요",
+    sourceUrl: "",
+  },
 };
 
 export function normalizeDashboardState(state?: Partial<DashboardState> | null): DashboardState {
@@ -152,6 +164,13 @@ export function normalizeDashboardState(state?: Partial<DashboardState> | null):
     })),
     widgets: normalizeWidgetConfigs(state?.widgets),
     memo: state?.memo ?? initialState.memo,
+    music: {
+      ...initialState.music,
+      ...state?.music,
+      title: state?.music?.title?.trim() || initialState.music.title,
+      subtitle: state?.music?.subtitle?.trim() || initialState.music.subtitle,
+      sourceUrl: state?.music?.sourceUrl?.trim() ?? initialState.music.sourceUrl,
+    },
   };
 }
 
