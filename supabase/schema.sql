@@ -83,6 +83,8 @@ create table if not exists dashboard_states (
   updated_at timestamptz default now()
 );
 
+grant select, insert, update, delete on table dashboard_states to authenticated;
+
 alter table dashboard_states enable row level security;
 
 create policy "profiles owner" on profiles for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
