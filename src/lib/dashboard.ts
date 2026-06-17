@@ -10,7 +10,7 @@ export const KANBAN_COLUMN_ORDER = [
 
 export type KanbanColumnName = (typeof KANBAN_COLUMN_ORDER)[number];
 export type CalendarMode = "week" | "month";
-export type DashboardWidgetType = "focus" | "clock" | "today" | "projects" | "calendar" | "kanban" | "bookmarks" | "memo";
+export type DashboardWidgetType = "focus" | "clock" | "today" | "projects" | "calendar" | "kanban" | "bookmarks" | "memo" | "jira";
 export type DashboardWidgetSize = "small" | "medium" | "wide";
 
 export type WidgetConfig = {
@@ -31,6 +31,7 @@ export const DEFAULT_WIDGET_CONFIGS: WidgetConfig[] = [
   { id: "kanban", type: "kanban", title: "칸반 미리보기", enabled: true, size: "wide", order: 5 },
   { id: "bookmarks", type: "bookmarks", title: "북마크", enabled: true, size: "medium", order: 6 },
   { id: "memo", type: "memo", title: "메모", enabled: true, size: "medium", order: 7 },
+  { id: "jira", type: "jira", title: "Jira 티켓", enabled: true, size: "medium", order: 8 },
 ];
 
 export type Project = {

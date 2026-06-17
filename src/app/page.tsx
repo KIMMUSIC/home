@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import {
   closestCorners,
@@ -37,6 +37,7 @@ import {
   Moon,
   PanelLeft,
   Plus,
+  RefreshCw,
   Settings,
   SlidersHorizontal,
   Sparkles,
@@ -562,11 +563,125 @@ function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, se
       return <DashboardWidgetFrame key={config.id} config={config} title="메모" {...widgetContext}><textarea className="memo-widget-input" value={state.memo} onChange={(event) => updateMemo(event.target.value)} aria-label="대시보드 메모" /></DashboardWidgetFrame>;
     }
 
+    if (config.type === "jira") {
+      return <DashboardWidgetFrame key={config.id} config={config} title="Jira 티켓" {...widgetContext}><JiraWidget onOpenSettings={() => setView("Settings")} /></DashboardWidgetFrame>;
+    }
+
 
     return null;
   }
 
   return <div className={isEditing ? "dashboard-grid editing" : "dashboard-grid"}>{visibleWidgets.map(renderWidget)}{visibleWidgets.length === 0 ? <section className="dashboard-empty-state card"><span className="pill">빈 대시보드</span><h2>보이는 위젯이 없어요.</h2><p>위젯 관리에서 필요한 위젯을 다시 켜면 나만의 홈 화면을 바로 복구할 수 있습니다.</p><button className="primary-button" onClick={onOpenWidgetManager}><SlidersHorizontal size={16} />위젯 관리 열기</button></section> : null}</div>;
+}
+
+type JiraTicketView = {
+  key: string;
+  summary: string;
+  status: string;
+  statusCategory: string;
+  priority?: string;
+  issueType?: string;
+  updatedAt: string;
+  url: string;
+};
+
+type JiraWidgetData = {
+  connected: boolean;
+  tickets: JiraTicketView[];
+  email?: string | null;
+  error?: string;
+};
+
+function JiraWidget({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const [status, setStatus] = useState<"loading" | "ready" | "unauthorized" | "failed">("loading");
+  const [data, setData] = useState<JiraWidgetData | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/jira", { cache: "no-store" });
+      if (response.status === 401) {
+        setStatus("unauthorized");
+        return;
+      }
+      const payload = (await response.json()) as JiraWidgetData & { error?: string };
+      if (!response.ok) {
+        setErrorMessage(payload.error ?? "Jira 티켓을 불러오지 못했습니다.");
+        setStatus("failed");
+        return;
+      }
+      setData(payload);
+      setStatus("ready");
+    } catch {
+      setErrorMessage("Jira 티켓을 불러오지 못했습니다.");
+      setStatus("failed");
+    }
+  }, []);
+
+  function reload() {
+    setStatus("loading");
+    setErrorMessage(null);
+    void load();
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  if (status === "loading") {
+    return <div className="jira-widget"><p className="jira-empty">불러오는 중…</p></div>;
+  }
+
+  if (status === "unauthorized") {
+    return (
+      <div className="jira-widget">
+        <p className="jira-empty">로그인 후 Jira를 연결할 수 있어요.</p>
+        <button className="soft-button" onClick={onOpenSettings}>설정 열기</button>
+      </div>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <div className="jira-widget">
+        <p className="auth-error">{errorMessage}</p>
+        <button className="soft-button" onClick={reload}>다시 시도</button>
+      </div>
+    );
+  }
+
+  if (!data?.connected) {
+    return (
+      <div className="jira-widget">
+        <p className="jira-empty">설정에서 Jira를 연결하세요.</p>
+        <button className="soft-button" onClick={onOpenSettings}>설정 열기</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="jira-widget">
+      <div className="jira-widget-head">
+        <span className="pill">{data.email ?? "Jira"}</span>
+        <button className="icon-button" onClick={reload} aria-label="Jira 티켓 새로고침"><RefreshCw size={15} /></button>
+      </div>
+      {data.error ? <p className="auth-error">{data.error}</p> : null}
+      {data.tickets.length === 0 ? (
+        <p className="jira-empty">표시할 티켓이 없어요.</p>
+      ) : (
+        <ul className="plain-list">
+          {data.tickets.map((ticket) => (
+            <li key={ticket.key}>
+              <a href={ticket.url} target="_blank" rel="noreferrer"><strong>{ticket.key}</strong></a>
+              <span className="jira-summary">{ticket.summary}</span>
+              <em className="jira-status">{ticket.status}</em>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 function DashboardWidgetFrame({ config, title, action, onAction, variant, isEditing, toggleWidget, changeWidgetSize, moveWidget, children }: { config: WidgetConfig; title?: string; action?: string; onAction?: () => void; variant?: "hero" | "clock"; isEditing: boolean; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; children: React.ReactNode }) {
@@ -994,7 +1109,130 @@ function SettingsView({ theme, setTheme, account }: { theme: "light" | "dark"; s
         <code>{account.configKeyName}</code>
         <code>Storage: local fallback + dashboard_states JSONB sync</code>
       </div>
+      <JiraSettingsSection loggedIn={Boolean(account.user)} />
     </section>
+  );
+}
+
+type JiraConnectionStatus = {
+  connected: boolean;
+  email: string | null;
+  baseUrl: string | null;
+  jql: string | null;
+};
+
+function JiraSettingsSection({ loggedIn }: { loggedIn: boolean }) {
+  const [baseUrl, setBaseUrl] = useState("");
+  const [email, setEmail] = useState("");
+  const [apiToken, setApiToken] = useState("");
+  const [jql, setJql] = useState("");
+  const [connection, setConnection] = useState<JiraConnectionStatus | null>(null);
+  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!loggedIn) return;
+    try {
+      const response = await fetch("/api/integrations/jira", { cache: "no-store" });
+      if (!response.ok) {
+        if (response.status !== 401) {
+          const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+          setError(payload?.error ?? "Jira 연동 상태를 불러오지 못했습니다.");
+        }
+        setConnection(null);
+        return;
+      }
+      const payload = (await response.json()) as JiraConnectionStatus;
+      setConnection(payload);
+      if (payload.connected) {
+        setBaseUrl(payload.baseUrl ?? "");
+        setEmail(payload.email ?? "");
+        setJql(payload.jql ?? "");
+      }
+    } catch {
+      setError("Jira 연동 상태를 불러오지 못했습니다.");
+    }
+  }, [loggedIn]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(timer);
+  }, [refresh]);
+
+  async function save() {
+    setPending(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/integrations/jira", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ baseUrl: baseUrl.trim(), email: email.trim(), apiToken: apiToken.trim(), jql: jql.trim() || undefined }),
+      });
+      const payload = (await response.json().catch(() => null)) as (JiraConnectionStatus & { error?: string }) | null;
+      if (!response.ok) {
+        setError(payload?.error ?? "Jira 연동을 저장하지 못했습니다.");
+        return;
+      }
+      setApiToken("");
+      setNotice("Jira 연동을 저장했습니다.");
+      if (payload) setConnection({ connected: true, email: payload.email ?? null, baseUrl: payload.baseUrl ?? null, jql: payload.jql ?? null });
+    } catch {
+      setError("Jira 연동을 저장하지 못했습니다.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function disconnect() {
+    setPending(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/integrations/jira", { method: "DELETE" });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setError(payload?.error ?? "Jira 연동을 해제하지 못했습니다.");
+        return;
+      }
+      setConnection({ connected: false, email: null, baseUrl: null, jql: null });
+      setBaseUrl("");
+      setEmail("");
+      setApiToken("");
+      setJql("");
+      setNotice("Jira 연동을 해제했습니다.");
+    } catch {
+      setError("Jira 연동을 해제하지 못했습니다.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="settings-jira">
+      <div className="settings-jira-head">
+        <span className="pill">Jira 연동</span>
+        {connection?.connected ? <strong>{connection.email} · 연결됨</strong> : <strong>연결되지 않음</strong>}
+      </div>
+      {!loggedIn ? (
+        <div className="env-warning">먼저 로그인하면 내 계정에 Jira를 연결할 수 있어요.</div>
+      ) : (
+        <form className="jira-settings-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+          <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://your-domain.atlassian.net" aria-label="Jira base URL" />
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" aria-label="Jira 이메일" />
+          <input type="password" value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder="API 토큰" aria-label="Jira API 토큰" />
+          <input value={jql} onChange={(event) => setJql(event.target.value)} placeholder="JQL (선택, 비우면 기본값 사용)" aria-label="Jira JQL" />
+          <div className="jira-settings-actions">
+            <button className="primary-button" disabled={pending}>{pending ? "저장 중" : "저장"}</button>
+            {connection?.connected ? <button type="button" className="soft-button" disabled={pending} onClick={() => void disconnect()}>연동 해제</button> : null}
+          </div>
+        </form>
+      )}
+      <em className="auth-notice">API 토큰 발급: https://id.atlassian.com/manage-profile/security/api-tokens</em>
+      {notice ? <em className="auth-notice">{notice}</em> : null}
+      {error ? <em className="auth-error">{error}</em> : null}
+    </div>
   );
 }
 

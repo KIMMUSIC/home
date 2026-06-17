@@ -389,6 +389,18 @@ button:hover, .bookmark-grid a:hover, .bookmark-table a:hover { transform: trans
 .env-warning { background: rgba(230,201,115,.16); color: var(--muted); }
 button:disabled { cursor: not-allowed; opacity: .52; transform: none; }
 
+.jira-widget { display: flex; flex-direction: column; gap: 10px; }
+.jira-widget-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.jira-empty { color: var(--muted); font-size: 13px; margin: 0; }
+.jira-widget .plain-list li { flex-wrap: wrap; }
+.jira-summary { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jira-status { color: var(--muted); font-size: 12px; font-style: normal; }
+.settings-jira { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.settings-jira-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jira-settings-form { display: flex; flex-direction: column; gap: 8px; }
+.jira-settings-form input { min-height: 38px; padding: 0 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-solid); color: var(--ink); }
+.jira-settings-actions { display: flex; gap: 8px; }
+
 @keyframes drawer-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes drawer-slide { from { transform: translateX(18px); } to { transform: translateX(0); } }
 

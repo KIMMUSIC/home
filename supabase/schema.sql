@@ -87,6 +87,23 @@ grant select, insert, update, delete on table dashboard_states to authenticated;
 
 alter table dashboard_states enable row level security;
 
+-- Per-user Atlassian Jira integration credentials.
+-- The api_token is stored plaintext and protected by RLS (only the owning user can read it).
+-- Future hardening: encrypt-at-rest with a server-held key.
+create table if not exists integration_jira (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  base_url text not null,
+  email text not null,
+  api_token text not null,
+  jql text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+grant select, insert, update, delete on table integration_jira to authenticated;
+
+alter table integration_jira enable row level security;
+
 create policy "profiles owner" on profiles for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "projects owner" on projects for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "todos owner" on todos for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
@@ -94,3 +111,4 @@ create policy "events owner" on calendar_events for all using (auth.uid() = user
 create policy "bookmarks owner" on bookmarks for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "cards owner" on kanban_cards for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "dashboard states owner" on dashboard_states for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "integration jira owner" on integration_jira for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
