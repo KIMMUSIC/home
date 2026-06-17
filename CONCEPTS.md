@@ -5,7 +5,7 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 ## Dashboard Workspace
 
 ### Dashboard Widget
-A configurable block of personal workspace information shown on the Home dashboard, such as tasks, projects, calendar items, bookmarks, or music context.
+A configurable block of personal workspace information shown on the Home dashboard, such as tasks, projects, calendar items, bookmarks, or notes.
 
 ### Home Dashboard
 The primary workspace surface that summarizes the user's current productivity state and routes into the more focused areas of the app.

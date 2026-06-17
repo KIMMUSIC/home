@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import {
   closestCorners,
@@ -22,15 +22,12 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  AlertTriangle,
   ArrowDown,
   ArrowUp,
   Bookmark,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Circle,
   Clock3,
   Eye,
@@ -39,10 +36,7 @@ import {
   ListChecks,
   Moon,
   PanelLeft,
-  Pause,
-  Play,
   Plus,
-  Search,
   Settings,
   SlidersHorizontal,
   Sparkles,
@@ -87,19 +81,8 @@ import {
   serializeDashboardState,
   todayKey,
   type DashboardState,
-  type MusicSettings,
 } from "@/lib/dashboard-state";
 import { createSupabaseBrowserClient, getSupabaseBrowserConfigStatus } from "@/lib/supabase";
-import {
-  describeYouTubePlayerError,
-  getYouTubeMusicResourceLabel,
-  getYouTubePlayerEmbedUrl,
-  getYouTubeThumbnailUrl,
-  needsPlaylistFirstTrackUrl,
-  parseYouTubeMusicResource,
-  type YouTubeMusicResource,
-  type YouTubePlayerError,
-} from "@/lib/youtube-music";
 
 type AppView = "Home" | "Today" | "Projects" | "Kanban" | "Calendar" | "Bookmarks" | "Settings";
 
@@ -133,98 +116,6 @@ type DashboardAccount = {
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
 };
-
-type MusicPlaybackStatus = "idle" | "loading" | "ready" | "playing" | "paused" | "buffering" | "ended" | "error";
-
-type YouTubePlayerInstance = {
-  playVideo?: () => void;
-  pauseVideo?: () => void;
-  nextVideo?: () => void;
-  previousVideo?: () => void;
-  destroy?: () => void;
-};
-
-type YouTubeIframeApi = {
-  Player: new (
-    element: string | HTMLIFrameElement,
-    options: {
-      events?: {
-        onReady?: () => void;
-        onStateChange?: (event: { data: number }) => void;
-        onError?: (event: { data: number }) => void;
-      };
-    },
-  ) => YouTubePlayerInstance;
-};
-
-declare global {
-  interface Window {
-    YT?: YouTubeIframeApi;
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-
-let youtubeIframeApiPromise: Promise<YouTubeIframeApi | null> | null = null;
-
-function loadYouTubeIframeApi() {
-  if (typeof window === "undefined") return Promise.resolve(null);
-  if (window.YT?.Player) return Promise.resolve(window.YT);
-  if (youtubeIframeApiPromise) return youtubeIframeApiPromise;
-
-  youtubeIframeApiPromise = new Promise((resolve) => {
-    const previousReady = window.onYouTubeIframeAPIReady;
-
-    function finish(api: YouTubeIframeApi | null) {
-      window.clearTimeout(timeout);
-      if (window.onYouTubeIframeAPIReady === handleReady) {
-        window.onYouTubeIframeAPIReady = previousReady;
-      }
-      if (!api?.Player) youtubeIframeApiPromise = null;
-      resolve(api?.Player ? api : null);
-    }
-
-    function handleReady() {
-      previousReady?.();
-      finish(window.YT ?? null);
-    }
-
-    const timeout = window.setTimeout(() => finish(window.YT?.Player ? window.YT : null), 8000);
-    window.onYouTubeIframeAPIReady = handleReady;
-
-    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
-      const script = document.createElement("script");
-      script.src = "https://www.youtube.com/iframe_api";
-      script.async = true;
-      script.onerror = () => {
-        script.remove();
-        finish(null);
-      };
-      document.head.appendChild(script);
-    }
-  });
-
-  return youtubeIframeApiPromise;
-}
-
-function getTopPlayerSubtitle(music: MusicSettings, resource: YouTubeMusicResource | null, status: MusicPlaybackStatus, error: YouTubePlayerError | null) {
-  if (error) return error.title;
-  if (!resource) return music.subtitle;
-  if (needsPlaylistFirstTrackUrl(resource)) return "playlist-only · 첫 곡 URL 권장";
-  if (status === "loading") return "플레이어 연결 중";
-  if (status === "buffering") return "버퍼링 중";
-  if (status === "playing") return "재생 중 · YouTube embed";
-  if (status === "paused") return "일시정지됨 · YouTube embed";
-  return getYouTubeMusicResourceLabel(resource);
-}
-
-function getMusicPlaybackStatusFromYouTubeState(state: number): MusicPlaybackStatus {
-  if (state === 1) return "playing";
-  if (state === 2) return "paused";
-  if (state === 3) return "buffering";
-  if (state === 0) return "ended";
-  if (state === 5) return "ready";
-  return "ready";
-}
 
 function usePersistentDashboard() {
   const supabaseClient = useMemo(() => createSupabaseBrowserClient(), []);
@@ -438,35 +329,20 @@ export default function Home() {
   const [newEvent, setNewEvent] = useState("");
   const [newBookmark, setNewBookmark] = useState("");
   const [newCard, setNewCard] = useState("");
-  const [musicPlaybackStatus, setMusicPlaybackStatus] = useState<MusicPlaybackStatus>("idle");
-  const [musicPlayerError, setMusicPlayerError] = useState<YouTubePlayerError | null>(null);
-  const musicPlayerRef = useRef<YouTubePlayerInstance | null>(null);
-  const pendingMusicCommandRef = useRef<"play" | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("week");
   const [isDashboardEditing, setIsDashboardEditing] = useState(false);
   const [isWidgetManagerOpen, setIsWidgetManagerOpen] = useState(false);
-  const [isMusicSettingsOpen, setIsMusicSettingsOpen] = useState(false);
 
   const selectedProject = state.projects.find((project) => project.id === selectedProjectId) ?? state.projects[0] ?? initialState.projects[0];
   const selectedCard = state.cards.find((card) => card.id === selectedCardId) ?? null;
+  const selectedEvent = state.events.find((event) => event.id === selectedEventId) ?? null;
   const summary = useMemo(() => calculateDashboardSummary(state, todayKey), [state]);
   const columns = useMemo(() => getKanbanColumns(state.cards, selectedProject.id), [state.cards, selectedProject.id]);
   const pinnedBookmarks = useMemo(() => getPinnedBookmarks(state.bookmarks, 6), [state.bookmarks]);
   const widgets = useMemo(() => normalizeWidgetConfigs(state.widgets), [state.widgets]);
-  const musicResource = useMemo(() => parseYouTubeMusicResource(state.music.sourceUrl), [state.music.sourceUrl]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      musicPlayerRef.current = null;
-      pendingMusicCommandRef.current = null;
-      setMusicPlayerError(null);
-      setMusicPlaybackStatus(musicResource ? "loading" : "idle");
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [musicResource]);
-
   function addTodo(title = quickText) {
     const trimmed = title.trim();
     if (!trimmed) return;
@@ -492,6 +368,13 @@ export default function Home() {
       events: [...current.events, { id: makeId("event"), title: trimmed, startAt: `${todayKey}T18:00:00` }],
     }));
     setNewEvent("");
+  }
+
+  function updateEvent(id: string, changes: Partial<CalendarEvent>) {
+    setState((current) => ({
+      ...current,
+      events: current.events.map((event) => (event.id === id ? { ...event, ...changes, id: event.id } : event)),
+    }));
   }
 
   function addBookmark() {
@@ -565,86 +448,17 @@ export default function Home() {
     setState((current) => ({ ...current, memo }));
   }
 
-  function updateMusic(changes: Partial<MusicSettings>) {
-    setState((current) => ({ ...current, music: { ...current.music, ...changes } }));
-  }
-
-  const handleMusicPlayerReady = useCallback((player: YouTubePlayerInstance) => {
-    musicPlayerRef.current = player;
-    setMusicPlayerError(null);
-    setMusicPlaybackStatus((current) => (current === "playing" ? current : "ready"));
-
-    if (pendingMusicCommandRef.current === "play") {
-      pendingMusicCommandRef.current = null;
-      player.playVideo?.();
-    }
-  }, []);
-
-  const handleMusicPlayerDispose = useCallback((player: YouTubePlayerInstance) => {
-    if (musicPlayerRef.current === player) {
-      musicPlayerRef.current = null;
-      setMusicPlaybackStatus(musicResource ? "loading" : "idle");
-    }
-  }, [musicResource]);
-
-  const handleMusicPlaybackStatusChange = useCallback((status: MusicPlaybackStatus) => {
-    setMusicPlaybackStatus(status);
-    if (status !== "error") setMusicPlayerError(null);
-  }, []);
-
-  const handleMusicPlayerError = useCallback((error: YouTubePlayerError) => {
-    pendingMusicCommandRef.current = null;
-    setMusicPlayerError(error);
-    setMusicPlaybackStatus("error");
-  }, []);
-
-  const toggleMusicPlayback = useCallback(() => {
-    if (!musicResource) {
-      setIsMusicSettingsOpen(true);
-      return;
-    }
-
-    const player = musicPlayerRef.current;
-    const shouldPause = musicPlaybackStatus === "playing" || musicPlaybackStatus === "buffering";
-
-    if (!player) {
-      pendingMusicCommandRef.current = shouldPause ? null : "play";
-      setMusicPlaybackStatus("loading");
-      setView("Home");
-      return;
-    }
-
-    if (shouldPause) {
-      player.pauseVideo?.();
-      return;
-    }
-
-    setMusicPlayerError(null);
-    player.playVideo?.();
-  }, [musicPlaybackStatus, musicResource]);
-
-  const skipMusicTrack = useCallback((direction: "previous" | "next") => {
-    const player = musicPlayerRef.current;
-    if (!player) {
-      setView("Home");
-      setMusicPlaybackStatus(musicResource ? "loading" : "idle");
-      return;
-    }
-    if (direction === "previous") player.previousVideo?.();
-    if (direction === "next") player.nextVideo?.();
-  }, [musicResource]);
-
   function removeItem(kind: "todos" | "events" | "bookmarks" | "cards", id: string) {
     setState((current) => ({
       ...current,
       [kind]: current[kind].filter((item) => item.id !== id),
     }));
     if (kind === "cards" && selectedCardId === id) setSelectedCardId(null);
+    if (kind === "events" && selectedEventId === id) setSelectedEventId(null);
   }
 
   return (
     <main className={theme === "dark" ? "app-frame dark-mode" : "app-frame"}>
-      <TopMusicPlayer music={state.music} resource={musicResource} playbackStatus={musicPlaybackStatus} playbackError={musicPlayerError} onOpenSettings={() => setIsMusicSettingsOpen(true)} onTogglePlayback={toggleMusicPlayback} onPreviousTrack={() => skipMusicTrack("previous")} onNextTrack={() => skipMusicTrack("next")} />
       <div className="workspace-shell">
         <aside className="sidebar">
           <div className="brand-lockup"><span className="brand-mark">H</span><strong>My Home</strong></div>
@@ -660,87 +474,19 @@ export default function Home() {
 
         <section className="content-area">
           <PageHeader view={view} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} isDashboardEditing={isDashboardEditing} setIsDashboardEditing={setIsDashboardEditing} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />
-          {view === "Home" && <HomeDashboard state={state} summary={summary} pinnedBookmarks={pinnedBookmarks} widgets={widgets} isEditing={isDashboardEditing} musicResource={musicResource} onPlayerReady={handleMusicPlayerReady} onPlayerDispose={handleMusicPlayerDispose} onPlaybackStatusChange={handleMusicPlaybackStatusChange} onPlayerError={handleMusicPlayerError} setView={setView} toggleTodo={toggleTodo} toggleWidget={toggleWidget} changeWidgetSize={changeWidgetSize} moveWidget={moveWidget} updateMemo={updateMemo} updateMusic={updateMusic} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />}
+          {view === "Home" && <HomeDashboard state={state} summary={summary} pinnedBookmarks={pinnedBookmarks} widgets={widgets} isEditing={isDashboardEditing} setView={setView} toggleTodo={toggleTodo} toggleWidget={toggleWidget} changeWidgetSize={changeWidgetSize} moveWidget={moveWidget} updateMemo={updateMemo} onOpenWidgetManager={() => setIsWidgetManagerOpen(true)} />}
           {view === "Today" && <TodayView todos={state.todos} quickText={quickText} setQuickText={setQuickText} addTodo={addTodo} toggleTodo={toggleTodo} removeTodo={(id) => removeItem("todos", id)} />}
           {view === "Projects" && <ProjectsView projects={state.projects} setSelectedProjectId={setSelectedProjectId} setView={setView} />}
           {view === "Kanban" && <KanbanView projects={state.projects} selectedProjectId={selectedProject.id} setSelectedProjectId={setSelectedProjectId} columns={columns} newCard={newCard} setNewCard={setNewCard} addCard={addCard} moveCard={moveCard} removeCard={(id) => removeItem("cards", id)} selectCard={setSelectedCardId} />}
-          {view === "Calendar" && <CalendarView events={state.events} newEvent={newEvent} setNewEvent={setNewEvent} addEvent={addEvent} removeEvent={(id) => removeItem("events", id)} mode={calendarMode} setMode={setCalendarMode} />}
+          {view === "Calendar" && <CalendarView events={state.events} newEvent={newEvent} setNewEvent={setNewEvent} addEvent={addEvent} removeEvent={(id) => removeItem("events", id)} selectEvent={setSelectedEventId} mode={calendarMode} setMode={setCalendarMode} />}
           {view === "Bookmarks" && <BookmarksView bookmarks={state.bookmarks} newBookmark={newBookmark} setNewBookmark={setNewBookmark} addBookmark={addBookmark} removeBookmark={(id) => removeItem("bookmarks", id)} />}
           {view === "Settings" && <SettingsView theme={theme} setTheme={setTheme} account={account} />}
         </section>
       </div>
       <KanbanDetailDrawer card={selectedCard} project={selectedCard ? state.projects.find((project) => project.id === selectedCard.projectId) : undefined} onClose={() => setSelectedCardId(null)} onUpdate={updateCard} />
+      <CalendarEventDetailDrawer event={selectedEvent} onClose={() => setSelectedEventId(null)} onUpdate={updateEvent} onDelete={(id) => removeItem("events", id)} />
       <WidgetManagerDrawer open={isWidgetManagerOpen} widgets={widgets} onClose={() => setIsWidgetManagerOpen(false)} onToggle={toggleWidget} onSizeChange={changeWidgetSize} onMove={moveWidget} onReset={resetWidgets} />
-      <MusicSettingsDrawer open={isMusicSettingsOpen} music={state.music} resource={musicResource} onClose={() => setIsMusicSettingsOpen(false)} onChange={updateMusic} onPlayerReady={handleMusicPlayerReady} onPlayerDispose={handleMusicPlayerDispose} onPlaybackStatusChange={handleMusicPlaybackStatusChange} onPlayerError={handleMusicPlayerError} />
     </main>
-  );
-}
-
-function TopMusicPlayer({ music, resource, playbackStatus, playbackError, onOpenSettings, onTogglePlayback, onPreviousTrack, onNextTrack }: { music: MusicSettings; resource: YouTubeMusicResource | null; playbackStatus: MusicPlaybackStatus; playbackError: YouTubePlayerError | null; onOpenSettings: () => void; onTogglePlayback: () => void; onPreviousTrack: () => void; onNextTrack: () => void }) {
-  const isPlaying = playbackStatus === "playing" || playbackStatus === "buffering";
-  const canSkip = Boolean(resource);
-  const playButtonLabel = !resource ? "음악 링크 설정" : isPlaying ? "플레이어 일시정지" : playbackStatus === "loading" ? "플레이어 연결 후 재생" : playbackStatus === "error" ? "플레이어 다시 재생 시도" : "플레이어 재생";
-
-  return (
-    <header className="top-music-bar">
-      <div className="page-context"><span className={resource ? "status-dot" : "status-dot muted"} /> Home · 작업 대시보드</div>
-      <div className={isPlaying && resource ? "music-player playing" : "music-player"}>
-        <AlbumCover resource={resource} />
-        <div className="track-copy"><strong>{music.title}</strong><span>{getTopPlayerSubtitle(music, resource, playbackStatus, playbackError)}</span></div>
-        <div className="live-waveform" aria-hidden="true">{Array.from({ length: 24 }).map((_, index) => <i key={index} />)}</div>
-        <div className="music-controls">
-          <button className="music-control-button settings" aria-label="상단 음악 설정" onClick={onOpenSettings}><SlidersHorizontal size={15} /></button>
-          <button className="music-control-button secondary" aria-label="이전 트랙" onClick={onPreviousTrack} disabled={!canSkip}><ChevronLeft size={16} /></button>
-          <button className={isPlaying ? "music-control-button play-toggle playing" : "music-control-button play-toggle"} aria-label={playButtonLabel} onClick={onTogglePlayback}>{isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}</button>
-          <button className="music-control-button secondary" aria-label="다음 트랙" onClick={onNextTrack} disabled={!canSkip}><ChevronRight size={16} /></button>
-        </div>
-      </div>
-      <div className="top-actions"><button className="soft-button"><Search size={16} />검색</button><button className="icon-button"><Settings size={17} /></button></div>
-    </header>
-  );
-}
-
-function AlbumCover({ resource, small = false }: { resource: YouTubeMusicResource | null; small?: boolean }) {
-  const thumbnailUrl = resource ? getYouTubeThumbnailUrl(resource) : undefined;
-  const className = ["album-cover", small ? "small" : "", thumbnailUrl ? "has-image" : ""].filter(Boolean).join(" ");
-  const style = thumbnailUrl ? ({ "--cover-image": `url(${thumbnailUrl})` } as React.CSSProperties) : undefined;
-
-  return <div className={className} style={style} aria-label={thumbnailUrl ? "YouTube 영상 썸네일 커버" : "앨범 커버"} />;
-}
-
-function MusicSettingsDrawer({ open, music, resource, onClose, onChange, onPlayerReady, onPlayerDispose, onPlaybackStatusChange, onPlayerError }: { open: boolean; music: MusicSettings; resource: YouTubeMusicResource | null; onClose: () => void; onChange: (changes: Partial<MusicSettings>) => void; onPlayerReady: (player: YouTubePlayerInstance) => void; onPlayerDispose: (player: YouTubePlayerInstance) => void; onPlaybackStatusChange: (status: MusicPlaybackStatus) => void; onPlayerError: (error: YouTubePlayerError) => void }) {
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
-  return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <aside className="music-settings-drawer" role="dialog" aria-modal="true" aria-labelledby="music-settings-title" onClick={(event) => event.stopPropagation()}>
-        <div className="drawer-head">
-          <div className="drawer-title-group">
-            <span className="pill">Top music player</span>
-            <h2 id="music-settings-title">상단 음악 설정</h2>
-            <div className="drawer-meta-row">
-              <span>{resource ? getYouTubeMusicResourceLabel(resource) : "URL 미연결"}</span>
-              <span>localStorage · Supabase sync</span>
-            </div>
-          </div>
-          <button className="icon-button" onClick={onClose} aria-label="상단 음악 설정 닫기"><X size={18} /></button>
-        </div>
-        <div className="music-settings-intro">
-          <strong>상단 플레이어에 표시할 YouTube Music 링크를 연결하세요.</strong>
-          <p>공식 YouTube Music 재생 API 대신 YouTube iframe embed를 사용합니다. playlist, watch, youtu.be 링크를 붙여 넣을 수 있습니다.</p>
-        </div>
-        <MusicWidget music={music} resource={resource} onChange={onChange} onPlayerReady={onPlayerReady} onPlayerDispose={onPlayerDispose} onPlaybackStatusChange={onPlaybackStatusChange} onPlayerError={onPlayerError} />
-      </aside>
-    </div>
   );
 }
 
@@ -770,7 +516,7 @@ function PageHeader({ view, quickText, setQuickText, addTodo, isDashboardEditing
   const isHome = view === "Home";
   return (
     <div className="page-header">
-      <div><span className="pill">JUNE 13 · SATURDAY</span><h1>{isHome ? "오늘의 작업실" : view}</h1><p>정돈된 생산성 홈에서 할 일, 프로젝트, 일정, 북마크와 음악을 함께 관리합니다.</p></div>
+      <div><span className="pill">JUNE 13 · SATURDAY</span><h1>{isHome ? "오늘의 작업실" : view}</h1><p>정돈된 생산성 홈에서 할 일, 프로젝트, 일정, 북마크를 한 화면에서 관리합니다.</p></div>
       <div className="page-header-actions">
         <div className="quick-add"><input value={quickText} onChange={(event) => setQuickText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addTodo(); }} placeholder="할 일을 빠르게 추가" /><button className="primary-button" onClick={addTodo}><Plus size={16} />추가</button></div>
         {isHome ? <div className="dashboard-edit-actions"><button className="soft-button" onClick={onOpenWidgetManager}><SlidersHorizontal size={16} />위젯 관리</button><button className={isDashboardEditing ? "soft-button active" : "soft-button"} onClick={() => setIsDashboardEditing(!isDashboardEditing)}>{isDashboardEditing ? "편집 완료" : "편집 모드"}</button></div> : null}
@@ -779,7 +525,7 @@ function PageHeader({ view, quickText, setQuickText, addTodo, isDashboardEditing
   );
 }
 
-function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, musicResource, onPlayerReady, onPlayerDispose, onPlaybackStatusChange, onPlayerError, setView, toggleTodo, toggleWidget, changeWidgetSize, moveWidget, updateMemo, updateMusic, onOpenWidgetManager }: { state: DashboardState; summary: ReturnType<typeof calculateDashboardSummary>; pinnedBookmarks: BookmarkItem[]; widgets: WidgetConfig[]; isEditing: boolean; musicResource: YouTubeMusicResource | null; onPlayerReady: (player: YouTubePlayerInstance) => void; onPlayerDispose: (player: YouTubePlayerInstance) => void; onPlaybackStatusChange: (status: MusicPlaybackStatus) => void; onPlayerError: (error: YouTubePlayerError) => void; setView: (view: AppView) => void; toggleTodo: (id: string) => void; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; updateMemo: (memo: string) => void; updateMusic: (changes: Partial<MusicSettings>) => void; onOpenWidgetManager: () => void }) {
+function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, setView, toggleTodo, toggleWidget, changeWidgetSize, moveWidget, updateMemo, onOpenWidgetManager }: { state: DashboardState; summary: ReturnType<typeof calculateDashboardSummary>; pinnedBookmarks: BookmarkItem[]; widgets: WidgetConfig[]; isEditing: boolean; setView: (view: AppView) => void; toggleTodo: (id: string) => void; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; updateMemo: (memo: string) => void; onOpenWidgetManager: () => void }) {
   const visibleWidgets = getVisibleWidgetConfigs(widgets);
   const widgetContext = { isEditing, toggleWidget, changeWidgetSize, moveWidget };
 
@@ -816,132 +562,11 @@ function HomeDashboard({ state, summary, pinnedBookmarks, widgets, isEditing, mu
       return <DashboardWidgetFrame key={config.id} config={config} title="메모" {...widgetContext}><textarea className="memo-widget-input" value={state.memo} onChange={(event) => updateMemo(event.target.value)} aria-label="대시보드 메모" /></DashboardWidgetFrame>;
     }
 
-    if (config.type === "music") {
-      return <DashboardWidgetFrame key={config.id} config={config} title="음악 플레이리스트" {...widgetContext}><MusicWidget music={state.music} resource={musicResource} onChange={updateMusic} onPlayerReady={onPlayerReady} onPlayerDispose={onPlayerDispose} onPlaybackStatusChange={onPlaybackStatusChange} onPlayerError={onPlayerError} /></DashboardWidgetFrame>;
-    }
 
     return null;
   }
 
   return <div className={isEditing ? "dashboard-grid editing" : "dashboard-grid"}>{visibleWidgets.map(renderWidget)}{visibleWidgets.length === 0 ? <section className="dashboard-empty-state card"><span className="pill">빈 대시보드</span><h2>보이는 위젯이 없어요.</h2><p>위젯 관리에서 필요한 위젯을 다시 켜면 나만의 홈 화면을 바로 복구할 수 있습니다.</p><button className="primary-button" onClick={onOpenWidgetManager}><SlidersHorizontal size={16} />위젯 관리 열기</button></section> : null}</div>;
-}
-
-function MusicWidget({ music, resource, onChange, onPlayerReady, onPlayerDispose, onPlaybackStatusChange, onPlayerError }: { music: MusicSettings; resource: YouTubeMusicResource | null; onChange: (changes: Partial<MusicSettings>) => void; onPlayerReady: (player: YouTubePlayerInstance) => void; onPlayerDispose: (player: YouTubePlayerInstance) => void; onPlaybackStatusChange: (status: MusicPlaybackStatus) => void; onPlayerError: (error: YouTubePlayerError) => void }) {
-  const draftUrlRef = useRef<HTMLInputElement | null>(null);
-  const isPlaylistOnly = resource ? needsPlaylistFirstTrackUrl(resource) : false;
-
-  function applyMusicUrl() {
-    onChange({ sourceUrl: draftUrlRef.current?.value ?? music.sourceUrl });
-  }
-
-  return (
-    <div className="music-integration">
-      <div className={resource ? "music-widget-card connected" : "music-widget-card"}>
-        <AlbumCover resource={resource} small />
-        <div>
-          <strong>{music.title}</strong>
-          <span>{resource ? getYouTubeMusicResourceLabel(resource) : "YouTube Music 또는 YouTube 링크 대기 중"}</span>
-        </div>
-      </div>
-      <div className="music-settings-grid">
-        <label>표시 이름<input value={music.title} onChange={(event) => onChange({ title: event.target.value })} placeholder="warm desk session" /></label>
-        <label>설명<input value={music.subtitle} onChange={(event) => onChange({ subtitle: event.target.value })} placeholder="autumn focus · playlist" /></label>
-      </div>
-      <form className="music-url-form" onSubmit={(event) => { event.preventDefault(); applyMusicUrl(); }}>
-        <label className="music-url-field">YouTube Music / YouTube URL<input key={music.sourceUrl} ref={draftUrlRef} defaultValue={music.sourceUrl} onBlur={applyMusicUrl} placeholder="https://music.youtube.com/watch?v=...&list=..." /></label>
-        <button className="soft-button" type="submit">연결</button>
-      </form>
-      {resource ? (
-        <>
-          {isPlaylistOnly ? <PlaylistOnlyGuidance /> : null}
-          <YouTubeEmbedPlayer music={music} resource={resource} onPlayerReady={onPlayerReady} onPlayerDispose={onPlayerDispose} onPlaybackStatusChange={onPlaybackStatusChange} onPlayerError={onPlayerError} />
-          <a className="music-open-link" href={resource.sourceUrl} target="_blank" rel="noreferrer">YouTube Music에서 열기</a>
-        </>
-      ) : (
-        <div className="music-empty-state"><strong>플레이리스트를 연결하세요.</strong><span>YouTube Music playlist, YouTube playlist, watch, youtu.be 링크를 붙여 넣으면 iframe 플레이어로 재생할 수 있습니다. 가능하면 곡을 클릭한 뒤 watch?v=...가 포함된 URL을 넣어주세요.</span></div>
-      )}
-    </div>
-  );
-}
-
-function PlaylistOnlyGuidance() {
-  return (
-    <div className="music-guidance-state" role="note">
-      <span><AlertTriangle size={16} /></span>
-      <div>
-        <strong>playlist-only URL은 첫 곡을 못 찾을 수 있어요.</strong>
-        <p>YouTube Music에서 재생목록 안의 곡 하나를 클릭한 뒤 <code>watch?v=...&amp;list=...</code> 형태의 URL을 붙여 넣으면 커버와 iframe 재생 안정성이 좋아집니다.</p>
-      </div>
-    </div>
-  );
-}
-
-function YouTubeEmbedPlayer({ music, resource, onPlayerReady, onPlayerDispose, onPlaybackStatusChange, onPlayerError }: { music: MusicSettings; resource: YouTubeMusicResource; onPlayerReady: (player: YouTubePlayerInstance) => void; onPlayerDispose: (player: YouTubePlayerInstance) => void; onPlaybackStatusChange: (status: MusicPlaybackStatus) => void; onPlayerError: (error: YouTubePlayerError) => void }) {
-  const reactId = useId().replace(/:/g, "");
-  const iframeId = `youtube-player-${reactId}`;
-  const [embedOrigin, setEmbedOrigin] = useState<string | undefined>();
-  const [playerError, setPlayerError] = useState<YouTubePlayerError | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const playerRef = useRef<YouTubePlayerInstance | null>(null);
-  const playerSrc = useMemo(() => getYouTubePlayerEmbedUrl(resource, embedOrigin), [embedOrigin, resource]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setEmbedOrigin(window.location.origin), 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => () => {
-    const player = playerRef.current;
-    if (player) {
-      onPlayerDispose(player);
-      player.destroy?.();
-    }
-    playerRef.current = null;
-  }, [onPlayerDispose, playerSrc]);
-
-  function handleIframeLoad() {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-
-    setPlayerError(null);
-    onPlaybackStatusChange("loading");
-    loadYouTubeIframeApi().then((api) => {
-      if (!api?.Player || iframeRef.current !== iframe || !iframe.isConnected) return;
-      let player: YouTubePlayerInstance | null = null;
-      player = new api.Player(iframe, {
-        events: {
-          onReady: () => {
-            if (!player) return;
-            playerRef.current = player;
-            onPlayerReady(player);
-            onPlaybackStatusChange("ready");
-          },
-          onStateChange: (event) => onPlaybackStatusChange(getMusicPlaybackStatusFromYouTubeState(event.data)),
-          onError: (event) => {
-            const error = describeYouTubePlayerError(event.data);
-            setPlayerError(error);
-            onPlayerError(error);
-          },
-        },
-      });
-    });
-  }
-
-  return (
-    <div className={playerError ? "youtube-embed-shell has-error" : "youtube-embed-shell"}>
-      <iframe id={iframeId} key={playerSrc} ref={iframeRef} src={playerSrc} title={`${music.title} YouTube player`} loading="lazy" onLoad={handleIframeLoad} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen />
-      {playerError ? (
-        <div className="youtube-error-overlay" role="alert">
-          <span><AlertTriangle size={17} /></span>
-          <div>
-            <strong>{playerError.title}</strong>
-            <p>{playerError.description}</p>
-            <em>오류 코드 {playerError.code}</em>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 function DashboardWidgetFrame({ config, title, action, onAction, variant, isEditing, toggleWidget, changeWidgetSize, moveWidget, children }: { config: WidgetConfig; title?: string; action?: string; onAction?: () => void; variant?: "hero" | "clock"; isEditing: boolean; toggleWidget: (type: DashboardWidgetType, enabled: boolean) => void; changeWidgetSize: (type: DashboardWidgetType, size: DashboardWidgetSize) => void; moveWidget: (type: DashboardWidgetType, direction: "up" | "down") => void; children: React.ReactNode }) {
@@ -1184,7 +809,7 @@ function KanbanDetailDrawer({ card, project, onClose, onUpdate }: { card: Kanban
             <label>Due date<input type="date" value={card.dueDate ?? ""} onChange={(event) => onUpdate(card.id, { dueDate: event.target.value })} /></label>
             <label>Assignee<input value={card.assignee ?? ""} onChange={(event) => onUpdate(card.id, { assignee: event.target.value })} placeholder="담당자" /></label>
             <label>Reporter<input value={card.reporter ?? ""} onChange={(event) => onUpdate(card.id, { reporter: event.target.value })} placeholder="작성자" /></label>
-            <label>Labels<input value={labelsText} onChange={(event) => onUpdate(card.id, { labels: parseKanbanLabelsInput(event.target.value) })} placeholder="UX, Music" /></label>
+            <label>Labels<input value={labelsText} onChange={(event) => onUpdate(card.id, { labels: parseKanbanLabelsInput(event.target.value) })} placeholder="UX, Integration" /></label>
             <div className="label-preview" aria-label="현재 라벨">{labels.map((label) => <span key={label}>{label}</span>)}</div>
           </section>
         </div>
@@ -1193,8 +818,81 @@ function KanbanDetailDrawer({ card, project, onClose, onUpdate }: { card: Kanban
   );
 }
 
+function CalendarEventDetailDrawer({ event, onClose, onUpdate, onDelete }: { event: CalendarEvent | null; onClose: () => void; onUpdate: (id: string, changes: Partial<CalendarEvent>) => void; onDelete: (id: string) => void }) {
+  useEffect(() => {
+    if (!event) return;
+    const handleKeyDown = (keyboardEvent: KeyboardEvent) => {
+      if (keyboardEvent.key === "Escape") onClose();
+    };
 
-function CalendarView({ events, newEvent, setNewEvent, addEvent, removeEvent, mode, setMode }: { events: CalendarEvent[]; newEvent: string; setNewEvent: (value: string) => void; addEvent: () => void; removeEvent: (id: string) => void; mode: CalendarMode; setMode: (mode: CalendarMode) => void }) {
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [event, onClose]);
+
+  if (!event) return null;
+
+  const eventDate = event.startAt.slice(0, 10);
+  const startTime = event.startAt.slice(11, 16);
+  const endTime = event.endAt?.slice(11, 16) ?? "";
+
+  function updateStartAt(date: string, time: string) {
+    const safeDate = date || todayKey;
+    const safeTime = time || "00:00";
+    onUpdate(event!.id, {
+      startAt: `${safeDate}T${safeTime}:00`,
+      endAt: event!.endAt ? `${safeDate}T${endTime || safeTime}:00` : undefined,
+    });
+  }
+
+  function updateEndTime(time: string) {
+    onUpdate(event!.id, { endAt: time ? `${eventDate}T${time}:00` : undefined });
+  }
+
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside className="event-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="event-detail-title" onClick={(clickEvent) => clickEvent.stopPropagation()}>
+        <div className="drawer-head">
+          <div className="drawer-title-group">
+            <span className="pill">일정 상세</span>
+            <h2 id="event-detail-title">{event.title || "제목 없는 일정"}</h2>
+            <div className="drawer-meta-row">
+              <span>{eventDate}</span>
+              <span>{startTime}{endTime ? `–${endTime}` : ""}</span>
+              <span>local sync</span>
+            </div>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="일정 상세 닫기"><X size={18} /></button>
+        </div>
+        <div className="event-detail-layout">
+          <section className="event-detail-main">
+            <div className="event-detail-editor-card">
+              <label>제목<input value={event.title} onChange={(inputEvent) => onUpdate(event.id, { title: inputEvent.target.value })} placeholder="일정 제목" /></label>
+              <div className="event-detail-field-grid">
+                <label>날짜<input type="date" value={eventDate} onChange={(inputEvent) => updateStartAt(inputEvent.target.value, startTime)} /></label>
+                <label>시작 시간<input type="time" value={startTime} onChange={(inputEvent) => updateStartAt(eventDate, inputEvent.target.value)} /></label>
+                <label>종료 시간<input type="time" value={endTime} onChange={(inputEvent) => updateEndTime(inputEvent.target.value)} /></label>
+              </div>
+            </div>
+            <div className="activity-box">
+              <strong>Activity</strong>
+              <div className="activity-timeline">
+                <span><i />일정 변경은 즉시 로컬 저장에 반영됩니다.</span>
+                <span><i />날짜나 시간을 바꾸면 캘린더 위치도 함께 이동합니다.</span>
+              </div>
+            </div>
+          </section>
+          <section className="detail-side" aria-label="일정 속성">
+            <div className="field-card status-card"><span>Calendar</span><strong>자체 일정</strong><em>Google Calendar 연동 없이 이 대시보드에서 관리됩니다.</em></div>
+            <button className="event-delete-action" onClick={() => onDelete(event.id)}><Trash2 size={15} />일정 삭제</button>
+          </section>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+
+function CalendarView({ events, newEvent, setNewEvent, addEvent, removeEvent, selectEvent, mode, setMode }: { events: CalendarEvent[]; newEvent: string; setNewEvent: (value: string) => void; addEvent: () => void; removeEvent: (id: string) => void; selectEvent: (id: string) => void; mode: CalendarMode; setMode: (mode: CalendarMode) => void }) {
   const days = getCalendarDays(mode, todayKey);
   const eventsByDay = new Map<string, CalendarEvent[]>();
   events.forEach((event) => {
@@ -1202,7 +900,64 @@ function CalendarView({ events, newEvent, setNewEvent, addEvent, removeEvent, mo
     eventsByDay.set(key, [...(eventsByDay.get(key) ?? []), event]);
   });
 
-  return <section className="panel-card card calendar-page"><div className="calendar-toolbar"><div><h2>{mode === "week" ? "주간 캘린더" : "월간 캘린더"}</h2><p>일정은 자체 캘린더에서 관리합니다. Google Calendar 연동은 제외했습니다.</p></div><div className="segmented"><button className={mode === "week" ? "active" : ""} onClick={() => setMode("week")}>주간</button><button className={mode === "month" ? "active" : ""} onClick={() => setMode("month")}>월간</button></div></div><div className="form-row"><input value={newEvent} onChange={(event) => setNewEvent(event.target.value)} placeholder="새 일정 제목" /><button className="primary-button" onClick={addEvent}>일정 추가</button></div><div className={mode === "week" ? "calendar-board week" : "calendar-board month"}>{days.map((day) => <div className={!day.inCurrentMonth ? "calendar-day muted" : day.isToday ? "calendar-day today" : "calendar-day"} key={day.dateKey}><div className="calendar-day-head"><strong>{day.dayNumber}</strong><span>{day.dateKey.slice(5)}</span></div><div className="calendar-events">{(eventsByDay.get(day.dateKey) ?? []).map((event) => <button key={event.id} onClick={() => removeEvent(event.id)} title="클릭하면 삭제됩니다"><span>{event.startAt.slice(11, 16)}</span>{event.title}</button>)}</div></div>)}</div></section>;
+  return (
+    <section className="panel-card card calendar-page">
+      <div className="calendar-toolbar">
+        <div>
+          <h2>{mode === "week" ? "주간 캘린더" : "월간 캘린더"}</h2>
+          <p>일정은 자체 캘린더에서 관리합니다. Google Calendar 연동은 제외했습니다.</p>
+        </div>
+        <div className="segmented">
+          <button className={mode === "week" ? "active" : ""} onClick={() => setMode("week")}>주간</button>
+          <button className={mode === "month" ? "active" : ""} onClick={() => setMode("month")}>월간</button>
+        </div>
+      </div>
+      <div className="form-row">
+        <input value={newEvent} onChange={(event) => setNewEvent(event.target.value)} placeholder="새 일정 제목" />
+        <button className="primary-button" onClick={addEvent}>일정 추가</button>
+      </div>
+      <div className={mode === "week" ? "calendar-board week" : "calendar-board month"}>
+        {days.map((day) => (
+          <div className={!day.inCurrentMonth ? "calendar-day muted" : day.isToday ? "calendar-day today" : "calendar-day"} key={day.dateKey}>
+            <div className="calendar-day-head"><strong>{day.dayNumber}</strong><span>{day.dateKey.slice(5)}</span></div>
+            <div className="calendar-events">
+              {(eventsByDay.get(day.dateKey) ?? []).map((event) => (
+                <article
+                  className="calendar-event"
+                  key={event.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${event.startAt.slice(11, 16)} ${event.title} 일정 상세 열기`}
+                  onClick={() => selectEvent(event.id)}
+                  onKeyDown={(keyboardEvent) => {
+                    if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") {
+                      keyboardEvent.preventDefault();
+                      selectEvent(event.id);
+                    }
+                  }}
+                >
+                  <span>{event.startAt.slice(11, 16)}</span>
+                  <strong>{event.title}</strong>
+                  <button
+                    className="calendar-event-delete"
+                    onPointerDown={(pointerEvent) => pointerEvent.stopPropagation()}
+                    onClick={(clickEvent) => {
+                      clickEvent.stopPropagation();
+                      removeEvent(event.id);
+                    }}
+                    aria-label={`${event.title} 일정 삭제`}
+                    title="일정 삭제"
+                  >
+                    <X size={13} />
+                  </button>
+                </article>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function BookmarksView({ bookmarks, newBookmark, setNewBookmark, addBookmark, removeBookmark }: { bookmarks: BookmarkItem[]; newBookmark: string; setNewBookmark: (value: string) => void; addBookmark: () => void; removeBookmark: (id: string) => void }) { return <section className="panel-card card"><div className="form-row"><input value={newBookmark} onChange={(event) => setNewBookmark(event.target.value)} placeholder="제목 | https://url.com" /><button className="primary-button" onClick={addBookmark}>북마크 추가</button></div><div className="bookmark-table">{bookmarks.map((bookmark) => <a key={bookmark.id} href={bookmark.url} target="_blank"><strong>{bookmark.title}</strong><span>{bookmark.category}</span><button onClick={(event) => { event.preventDefault(); removeBookmark(bookmark.id); }}><Trash2 size={15} /></button></a>)}</div></section>; }
@@ -1237,7 +992,6 @@ function SettingsView({ theme, setTheme, account }: { theme: "light" | "dark"; s
         </div>
         <code>NEXT_PUBLIC_SUPABASE_URL</code>
         <code>{account.configKeyName}</code>
-        <code>YouTube Music: URL 기반 YouTube embed 연동</code>
         <code>Storage: local fallback + dashboard_states JSONB sync</code>
       </div>
     </section>

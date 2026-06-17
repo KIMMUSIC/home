@@ -9,11 +9,6 @@ import {
   type WidgetConfig,
 } from "./dashboard";
 
-export type MusicSettings = {
-  title: string;
-  subtitle: string;
-  sourceUrl: string;
-};
 
 export type DashboardState = {
   projects: Project[];
@@ -23,7 +18,6 @@ export type DashboardState = {
   cards: KanbanCard[];
   widgets: WidgetConfig[];
   memo: string;
-  music: MusicSettings;
 };
 
 export const todayKey = "2026-06-13";
@@ -72,16 +66,16 @@ export const initialState: DashboardState = {
     {
       id: "c2",
       projectId: "p1",
-      title: "상단 음악 플레이어 구현",
+      title: "위젯 편집 모드 개선",
       column: "Doing",
       order: 0,
       priority: "high",
-      description: "앨범 커버와 live waveform visualizer가 있는 상단 고정 플레이어를 구현한다.",
+      description: "위젯 표시/숨김, 순서, 크기 조절 흐름이 매일 쓰기 편한지 정리한다.",
       startDate: "2026-06-13",
       dueDate: "2026-06-15",
       assignee: "me",
       reporter: "me",
-      labels: ["Music", "Motion"],
+      labels: ["Widgets", "UX"],
       createdAt: "2026-06-13",
       updatedAt: "2026-06-13",
     },
@@ -104,16 +98,16 @@ export const initialState: DashboardState = {
     {
       id: "c4",
       projectId: "p1",
-      title: "YouTube Music fallback 조사",
+      title: "대시보드 저장 방식 점검",
       column: "Waiting",
       order: 0,
       priority: "high",
-      description: "비공식 API가 막힐 때 YouTube embed 또는 playlist URL 기반으로 대체하는 전략을 조사한다.",
+      description: "로컬 저장과 계정 동기화 흐름이 충돌 없이 이어지는지 확인한다.",
       startDate: "2026-06-16",
       dueDate: "2026-06-22",
       assignee: "me",
       reporter: "me",
-      labels: ["Integration", "Risk"],
+      labels: ["Storage", "Risk"],
       createdAt: "2026-06-13",
       updatedAt: "2026-06-13",
     },
@@ -142,17 +136,10 @@ export const initialState: DashboardState = {
   ],
   widgets: DEFAULT_WIDGET_CONFIGS,
   memo: "오늘 떠오른 아이디어와 임시 메모를 여기에 남겨두세요.",
-  music: {
-    title: "warm desk session",
-    subtitle: "YouTube Music playlist URL을 연결하세요",
-    sourceUrl: "",
-  },
 };
 
 export function normalizeDashboardState(state?: Partial<DashboardState> | null): DashboardState {
   return {
-    ...initialState,
-    ...state,
     projects: state?.projects ?? initialState.projects,
     todos: state?.todos ?? initialState.todos,
     events: state?.events ?? initialState.events,
@@ -164,13 +151,6 @@ export function normalizeDashboardState(state?: Partial<DashboardState> | null):
     })),
     widgets: normalizeWidgetConfigs(state?.widgets),
     memo: state?.memo ?? initialState.memo,
-    music: {
-      ...initialState.music,
-      ...state?.music,
-      title: state?.music?.title?.trim() || initialState.music.title,
-      subtitle: state?.music?.subtitle?.trim() || initialState.music.subtitle,
-      sourceUrl: state?.music?.sourceUrl?.trim() ?? initialState.music.sourceUrl,
-    },
   };
 }
 

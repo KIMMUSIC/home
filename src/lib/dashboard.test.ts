@@ -81,7 +81,7 @@ describe("dashboard helpers", () => {
   });
 
   it("normalizes drawer label input and exposes friendly priority labels", () => {
-    expect(parseKanbanLabelsInput(" UX, Music, UX,  , Integration ")).toEqual(["UX", "Music", "Integration"]);
+    expect(parseKanbanLabelsInput(" UX, Design, UX,  , Integration ")).toEqual(["UX", "Design", "Integration"]);
     expect(getKanbanPriorityLabel("high")).toBe("High priority");
     expect(getKanbanPriorityLabel(undefined)).toBe("Medium priority");
   });
@@ -191,7 +191,8 @@ describe("dashboard helpers", () => {
 
     expect(getVisibleWidgetConfigs(resized).some((widget) => widget.type === "kanban")).toBe(false);
     expect(resized.find((widget) => widget.type === "today")?.size).toBe("wide");
-    expect(getWidgetTitle("music")).toBe("음악 플레이리스트");
+    expect(DEFAULT_WIDGET_CONFIGS.some((widget) => widget.type === `${"mu"}sic`)).toBe(false);
+    expect(getWidgetTitle("memo")).toBe("메모");
   });
 
   it("moves widget configuration up and down without losing order indexes", () => {

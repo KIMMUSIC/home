@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "My DIY Home Dashboard",
-  description: "Notion 감성과 음악 비주얼라이저가 결합된 개인 생산성 홈",
+  description: "Notion 감성의 개인 생산성 DIY 홈 대시보드",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

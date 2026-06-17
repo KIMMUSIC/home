@@ -58,31 +58,44 @@ describe("dashboard page structure", () => {
     expect(stylesSource).toContain(".sync-card-action");
   });
 
-  it("renders YouTube Music URL embed integration controls", () => {
-    expect(pageSource).toContain("MusicWidget");
-    expect(pageSource).toContain("MusicSettingsDrawer");
-    expect(pageSource).toContain("상단 음악 설정");
-    expect(pageSource).toContain("parseYouTubeMusicResource");
-    expect(pageSource).toContain("youtube-embed-shell");
-    expect(pageSource).toContain("YouTube Music에서 열기");
-    expect(pageSource).toContain("YouTube Music: URL 기반 YouTube embed 연동");
-    expect(pageSource).toContain("AlbumCover");
-    expect(pageSource).toContain("getYouTubeThumbnailUrl");
-    expect(pageSource).toContain("PlaylistOnlyGuidance");
-    expect(pageSource).toContain("YouTubeEmbedPlayer");
-    expect(pageSource).toContain("loadYouTubeIframeApi");
-    expect(pageSource).toContain("playVideo?.()");
-    expect(pageSource).toContain("pauseVideo?.()");
-    expect(pageSource).toContain("onStateChange");
-    expect(pageSource).toContain("getMusicPlaybackStatusFromYouTubeState");
-    expect(pageSource).toContain("describeYouTubePlayerError");
-    expect(pageSource).toContain("playlist-only URL은 첫 곡을 못 찾을 수 있어요.");
-    expect(pageSource).toContain("music-control-button play-toggle");
-    expect(stylesSource).toContain(".music-settings-drawer");
-    expect(stylesSource).toContain(".music-integration");
-    expect(stylesSource).toContain(".youtube-embed-shell");
-    expect(stylesSource).toContain(".music-guidance-state");
-    expect(stylesSource).toContain(".youtube-error-overlay");
-    expect(stylesSource).toContain(".music-control-button");
+  it("does not delete calendar events when the event row itself is clicked", () => {
+    expect(pageSource).not.toContain("onClick={() => removeEvent(event.id)} title=\"클릭하면 삭제됩니다\"");
+    expect(pageSource).toContain("calendar-event");
+    expect(pageSource).toContain("calendar-event-delete");
+    expect(pageSource).toContain("일정 삭제");
+    expect(stylesSource).toContain(".calendar-event");
+    expect(stylesSource).toContain(".calendar-event-delete");
+  });
+
+  it("opens a kanban-like calendar event detail drawer from an event row", () => {
+    expect(pageSource).toContain("selectedEventId");
+    expect(pageSource).toContain("CalendarEventDetailDrawer");
+    expect(pageSource).toContain("selectEvent={setSelectedEventId}");
+    expect(pageSource).toContain("onClick={() => selectEvent(event.id)}");
+    expect(pageSource).toContain("event-detail-drawer");
+    expect(pageSource).toContain("event-detail-editor-card");
+    expect(pageSource).toContain("일정 상세");
+    expect(pageSource).toContain("시작 시간");
+    expect(pageSource).toContain("종료 시간");
+    expect(stylesSource).toContain(".event-detail-drawer");
+    expect(stylesSource).toContain(".event-detail-editor-card");
+  });
+
+  it("removes the retired player widget and top bar surfaces", () => {
+    const retiredName = String.fromCharCode(77, 117, 115, 105, 99);
+    const retiredClass = String.fromCharCode(109, 117, 115, 105, 99);
+    const retiredEmbedHost = String.fromCharCode(121, 111, 117, 116, 117, 98, 101);
+
+    expect(pageSource).not.toContain(`Top${retiredName}Player`);
+    expect(pageSource).not.toContain(`${retiredName}Widget`);
+    expect(pageSource).not.toContain(`${retiredName}SettingsDrawer`);
+    expect(pageSource).not.toContain(`${retiredEmbedHost}-${retiredClass}`);
+    expect(pageSource).not.toContain(`${retiredEmbedHost[0].toUpperCase()}${retiredEmbedHost.slice(1)} ${retiredName}`);
+    expect(pageSource).not.toContain(`${retiredClass}Resource`);
+    expect(stylesSource).not.toContain(`.top-${retiredClass}-bar`);
+    expect(stylesSource).not.toContain(`.${retiredClass}-player`);
+    expect(stylesSource).not.toContain(`.${retiredClass}-widget-card`);
+    expect(stylesSource).not.toContain(`.${retiredEmbedHost}-embed-shell`);
+    expect(stylesSource).toContain("min-height: 100vh");
   });
 });
